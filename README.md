@@ -14,14 +14,34 @@ light/dark/system theming, and 9 languages.
 
 ## How it works
 
-The DualSense has no exposed USB Audio interface over Bluetooth, so true
-PCM-to-haptics (like DSX claims on Windows) isn't possible over BT on stock
-Linux. Instead, this app captures your system's default audio output,
-splits it into a bass band and a treble band, and drives the controller's
-two rumble motors (`FF_RUMBLE`) with an envelope follower per band — with
-noise-gating so a constant background hum doesn't drown out transients like
-footsteps or gunshots. It's not literal audio, but it tracks impacts, bass,
-and voice noticeably better than a flat "vibrate on any sound" approach.
+Over **USB**, the DualSense exposes itself as a 4-channel USB Audio Class
+device: front-left/front-right are its tiny internal speaker, and
+rear-left/rear-right are literally the two haptic motors, wired up as
+ordinary audio outputs. That's the exact mechanism DSX uses on Windows and
+the PS5 itself uses internally — real PCM waveforms played straight onto
+the actuators, not a synthesized effect. This app detects that device and,
+by default, streams your live system audio (gain-staged and band-limited to
+what the motors reproduce well) directly onto it — literal audio-to-haptics,
+independently per motor. It can be tuned or turned off under **Advanced
+Settings → Direct Audio (USB)**.
+
+Over **Bluetooth**, that USB Audio interface doesn't exist, so by default the
+app falls back to the same approach it always used: capturing your system's
+default audio output, splitting it into a bass band and a treble band, and
+driving the controller's two rumble motors (`FF_RUMBLE`) with an envelope
+follower per band, with noise-gating so a constant background hum doesn't
+drown out transients like footsteps or gunshots. It's not literal audio,
+but it tracks impacts, bass, and voice noticeably better than a flat
+"vibrate on any sound" approach.
+
+There's also an **experimental, opt-in** literal-audio path over Bluetooth,
+built on independent reverse-engineering of the DualSense's Bluetooth HID
+haptics protocol by [egormanga/SAxense](https://github.com/egormanga/SAxense)
+(much lower fidelity than the USB path — 8-bit, 3kHz combined — but still
+real PCM, not a synthesized envelope, and the same per-motor precision holds
+up in practice). It's off by default and needs the `SAxense` tool installed
+separately; see [Installation](#installation) and
+[Credits](#credits).
 
 Adaptive trigger effects (L2/R2 resistance profiles) are applied via
 [`dualsensectl`](https://github.com/nowrep/dualsensectl), since they're
@@ -29,9 +49,15 @@ one-shot HID reports rather than something worth reimplementing here.
 
 ## Features
 
-- **Audio-to-haptics** — band-split bass/treble envelope followers with
-  adjustable attack/release, sensitivity, contrast (gamma), and background
-  noise suppression, independently for each motor.
+- **Direct audio-to-haptics over USB** — live system audio streamed as
+  literal PCM straight onto the two motors, the same mechanism DSX and the
+  PS5 itself use. Falls back to the band-split envelope approach below over
+  Bluetooth, where that hardware path doesn't exist — plus an experimental,
+  opt-in literal-audio path over Bluetooth too, at much lower fidelity (see
+  [How it works](#how-it-works) and [Credits](#credits)).
+- **Audio-to-haptics (Bluetooth / fallback)** — band-split bass/treble
+  envelope followers with adjustable attack/release, sensitivity, contrast
+  (gamma), and background noise suppression, independently for each motor.
 - **5 built-in presets** (Balanced, Cinema, Music, Voice & Podcasts, Maximum
   Sensitivity) plus your own saved profiles.
 - **Adaptive triggers** — 7 resistance presets (soft resistance, hard wall,
@@ -65,6 +91,8 @@ one-shot HID reports rather than something worth reimplementing here.
 - PulseAudio or PipeWire with `pipewire-pulse` (needs `parec` on `PATH`)
 - [`dualsensectl`](https://github.com/nowrep/dualsensectl) — only required
   for adaptive trigger effects; everything else works without it
+- [SAxense](https://github.com/egormanga/SAxense) — optional, only needed
+  for the experimental Bluetooth direct-audio mode (off by default)
 - Your user needs read/write access to the controller's `evdev`/`hidraw`
   devices (normally granted via the `input`/`plugdev` group or a udev rule
   that ships with `hid-playstation`-aware distros; if in doubt, check
@@ -114,6 +142,17 @@ git clone https://github.com/nowrep/dualsensectl.git
 cd dualsensectl && make && sudo make install
 ```
 
+### Optional: experimental Bluetooth direct-audio
+
+Not required for anything else in the app. Only needed if you want to turn
+on **Advanced Settings → Direct Audio → Enable over Bluetooth
+(experimental)**:
+
+```sh
+git clone https://github.com/egormanga/SAxense.git
+cd SAxense && make && sudo install -Dm755 SAxense /usr/local/bin/SAxense
+```
+
 ## Usage
 
 Launch it (`dualsense-haptics` if installed via the package, or
@@ -131,9 +170,10 @@ tray icon's context menu to reopen, toggle vibration, or quit. Check
 
 ## Limitations
 
-- No literal PCM playback through the motors over Bluetooth — see
-  [How it works](#how-it-works). Audio quality of the haptic response
-  depends on the DSP tuning in **Advanced Settings**, not a 1:1 waveform.
+- Over Bluetooth, by default haptic quality depends on the DSP tuning in
+  **Advanced Settings** rather than a 1:1 waveform — see
+  [How it works](#how-it-works) for why, and for the experimental opt-in
+  path that gets literal (if lower-fidelity) audio over Bluetooth too.
 - Vibration/button-haptics needs the controller to expose a force-feedback
   `evdev` interface, which requires `hid-playstation`; very old kernels
   won't have it.
@@ -142,6 +182,17 @@ tray icon's context menu to reopen, toggle vibration, or quit. Check
 - Built and tested on Arch/Hyprland; should work anywhere with a recent
   kernel and PipeWire/PulseAudio, but other desktop environments and
   distros haven't been extensively tested.
+
+## Credits
+
+- [`dualsensectl`](https://github.com/nowrep/dualsensectl) (nowrep) — used
+  for adaptive trigger effects.
+- [SAxense](https://github.com/egormanga/SAxense) (egormanga/Sdore) — the
+  Bluetooth haptics-over-audio protocol used by the experimental direct
+  audio mode is their independent reverse-engineering research; see their
+  repo for details. Not bundled — installed and invoked separately (see
+  [Installation](#installation)), and used here strictly as an external
+  tool, unmodified.
 
 ## License
 

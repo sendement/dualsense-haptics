@@ -9,8 +9,11 @@ Runs in its own thread; `config` is a plain nested dict that the GUI can
 mutate directly for live tuning (each analysis chunk re-reads it, so no
 locking is needed - worst case one 20ms frame uses a slightly stale value).
 """
+import glob
 import math
 import queue
+import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -27,6 +30,24 @@ CHUNK_SAMPLES = RATE * CHUNK_MS // 1000
 CHUNK_BYTES = CHUNK_SAMPLES * CHANNELS * 2  # s16le
 REPLAY_LEN_MS = 60
 
+# Direct-audio (USB) path: plays live audio as literal PCM straight onto the
+# two motors instead of synthesizing an envelope, so it uses a real audio
+# rate rather than the coarse control-rate above. See find_dualsense_sink().
+RATE_DIRECT = 48000
+CHUNK_MS_DIRECT = 20
+CHUNK_SAMPLES_DIRECT = RATE_DIRECT * CHUNK_MS_DIRECT // 1000
+BUTTON_CLICK_HZ = 150
+
+# Direct-audio (Bluetooth) path: same idea, over a community-reverse-
+# engineered BT HID haptics protocol (github.com/egormanga/SAxense) rather
+# than the USB Audio Class interface - opt-in and far lower fidelity (8-bit,
+# combined 3kHz for both channels) but still literal PCM, not a synthesized
+# envelope. See find_dualsense_hidraw() and HapticsEngine._session_bt_direct_audio.
+BT_RATE = 3000
+BT_CHUNK_MS = 20
+BT_CHUNK_SAMPLES = BT_RATE * BT_CHUNK_MS // 1000
+BT_BUTTON_CLICK_HZ = 150
+
 DEFAULT_CONFIG = {
     "master_gain": 1.0,
     "bass_cutoff_hz": 90,
@@ -38,6 +59,9 @@ DEFAULT_CONFIG = {
     # button code (str, JSON-friendly) -> {"enabled": bool, "strength": float}.
     # Empty by default - no button feedback until the user picks one.
     "button_haptics": {},
+    # USB only - see find_dualsense_sink() and HapticsEngine._session_direct_audio.
+    # bt_enabled is separate and opt-in (default off) - see BT_RATE above.
+    "direct_audio": {"enabled": True, "gain": 5.0, "cutoff_hz": 500, "bt_enabled": False},
 }
 
 BUTTON_ATTACK = 0.7
@@ -98,6 +122,48 @@ def connection_kind(dev):
         return "usb"
     if bustype == ecodes.BUS_BLUETOOTH:
         return "bluetooth"
+    return None
+
+
+def find_dualsense_sink():
+    """Name of the DualSense's 4-channel "Direct" USB Audio Class sink, if
+    connected over USB and PipeWire/PulseAudio has already picked it up.
+    front-left/front-right are the tiny internal speaker; rear-left/
+    rear-right are literally the two haptic motors, wired up as ordinary
+    audio outputs - confirmed by ear (er, by hand) against real hardware.
+    This is the same USB descriptor Windows uses for DSX's audio-to-haptics,
+    and the same mechanism Sony's own PS5 SDK uses internally. Matched by
+    vendor/product id and channel count rather than by sink name, since the
+    name embeds the USB product string (see find_ff_device())."""
+    try:
+        out = subprocess.run(
+            ["pactl", "list", "sinks"], capture_output=True, text=True, timeout=3,
+        ).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    vendor_needle = f'device.vendor.id = "0x{SONY_VENDOR_ID:04x}"'
+    product_needles = [f'device.product.id = "0x{pid:04x}"' for pid in DUALSENSE_PRODUCT_IDS]
+    for block in out.split("\n\n"):
+        if vendor_needle not in block or not any(needle in block for needle in product_needles):
+            continue
+        if 'audio.channels = "4"' not in block:
+            continue
+        m = re.search(r"^\s*Name:\s*(\S+)", block, re.MULTILINE)
+        if m:
+            return m.group(1)
+    return None
+
+
+def find_dualsense_hidraw():
+    """/dev/hidrawN for a Bluetooth-connected DualSense/Edge, resolved from
+    the kernel's uhid sysfs tree (hid-playstation creates one such node per
+    bonded/connected BT device). Only meaningful together with the SAxense
+    binary - see _session_bt_direct_audio."""
+    for pid in DUALSENSE_PRODUCT_IDS:
+        pattern = f"/sys/devices/virtual/misc/uhid/0005:{SONY_VENDOR_ID:04X}:{pid:04X}.*/hidraw/hidraw*"
+        matches = glob.glob(pattern)
+        if matches:
+            return f"/dev/{matches[0].rsplit('/', 1)[-1]}"
     return None
 
 
@@ -202,6 +268,269 @@ class HapticsEngine(threading.Thread):
             self._stop_event.wait(1.0)
 
     def _session(self, dev):
+        """Dispatches to whichever haptics path applies to this connection.
+        Direct audio over USB (see find_dualsense_sink()) is tried first
+        there. Direct audio over Bluetooth is opt-in and needs the external
+        `SAxense` tool (see find_dualsense_hidraw()). Anything else falls
+        back to the synthesized-envelope/FF_RUMBLE path."""
+        kind = connection_kind(dev)
+        direct_cfg = self.config.get("direct_audio", {})
+        if kind == "usb" and direct_cfg.get("enabled", True):
+            sink = find_dualsense_sink()
+            if sink:
+                self._session_direct_audio(dev, sink)
+                return
+        elif kind == "bluetooth" and direct_cfg.get("enabled", True) and direct_cfg.get("bt_enabled", False):
+            hidraw = find_dualsense_hidraw()
+            if hidraw and shutil.which("SAxense"):
+                self._session_bt_direct_audio(dev, hidraw)
+                return
+        self._session_ff(dev)
+
+    def _session_direct_audio(self, dev, sink):
+        """USB only: streams live system audio as literal PCM straight onto
+        the two motors (see find_dualsense_sink()) instead of synthesizing an
+        envelope for FF_RUMBLE - the same trick DSX uses on Windows and the
+        PS5 itself uses internally. Deliberately sends zero FF traffic while
+        this runs: a concurrent FF_RUMBLE write fights the kernel driver for
+        control of the controller's audio-routing state and silences this
+        path entirely (confirmed against real hardware), so button haptics
+        are reproduced here as a synthesized click mixed into the outgoing
+        PCM instead of a separate FF effect."""
+        rate = RATE_DIRECT
+        chunk_samples = CHUNK_SAMPLES_DIRECT
+        stereo_bytes = chunk_samples * 2 * 2
+        stereo_fmt = f"<{chunk_samples * 2}h"
+        quad_fmt = f"<{chunk_samples * 4}h"
+        phase_step = 2 * math.pi * BUTTON_CLICK_HZ / rate
+
+        parec = subprocess.Popen(
+            ["parec", "-d", "@DEFAULT_SINK@.monitor", "--format=s16le",
+             f"--rate={rate}", "--channels=2", "--raw", "--latency-msec=20"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        )
+        paplay = subprocess.Popen(
+            ["paplay", "--raw", f"--rate={rate}", "--format=s16le", "--channels=4",
+             "--channel-map=front-left,front-right,rear-left,rear-right", f"--device={sink}"],
+            stdin=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        )
+
+        left_y = right_y = 0.0
+        button_strong_env = button_weak_env = 0.0
+        held_keys = {}
+        hat_x = hat_y = 0
+        phase = 0.0
+
+        try:
+            while not self._stop_event.is_set():
+                data = parec.stdout.read(stereo_bytes)
+                if len(data) < stereo_bytes:
+                    if parec.poll() is not None:
+                        raise RuntimeError("audio capture (parec) exited")
+                    continue
+                if paplay.poll() is not None:
+                    raise RuntimeError("audio playback (paplay) exited")
+
+                cfg = self.config
+                direct_cfg = cfg.get("direct_audio", {})
+                gain = direct_cfg.get("gain", 3.0)
+                cutoff_hz = direct_cfg.get("cutoff_hz", 500)
+
+                while True:
+                    ev = dev.read_one()
+                    if ev is None:
+                        break
+                    if ev.type == ecodes.EV_KEY:
+                        held_keys[ev.code] = ev.value != 0
+                    elif ev.type == ecodes.EV_ABS and ev.code in (ecodes.ABS_HAT0X, ecodes.ABS_HAT0Y):
+                        if ev.code == ecodes.ABS_HAT0X:
+                            hat_x = ev.value
+                        else:
+                            hat_y = ev.value
+                        held_keys[DPAD_VIRTUAL_CODE] = hat_x != 0 or hat_y != 0
+
+                samples = struct.unpack(stereo_fmt, data)
+                left_in = [s / 32768.0 for s in samples[0::2]]
+                right_in = [s / 32768.0 for s in samples[1::2]]
+                left_y, left = lowpass_block(left_in, left_y, cutoff_hz, rate)
+                right_y, right = lowpass_block(right_in, right_y, cutoff_hz, rate)
+
+                # Same per-side button feedback as the FF path (BUTTON_SIDE),
+                # just mixed in as a short tone instead of an FF magnitude.
+                button_strong_target = 0.0
+                button_weak_target = 0.0
+                for code_str, entry in cfg["button_haptics"].items():
+                    if not entry.get("enabled") or not held_keys.get(int(code_str), False):
+                        continue
+                    side = BUTTON_SIDE.get(int(code_str), "weak")
+                    strength = entry.get("strength", 0.4)
+                    if side == "strong":
+                        button_strong_target = max(button_strong_target, strength)
+                    else:
+                        button_weak_target = max(button_weak_target, strength)
+                button_strong_env += (button_strong_target - button_strong_env) * (
+                    BUTTON_ATTACK if button_strong_target > button_strong_env else BUTTON_RELEASE)
+                button_weak_env += (button_weak_target - button_weak_env) * (
+                    BUTTON_ATTACK if button_weak_target > button_weak_env else BUTTON_RELEASE)
+
+                frame = [0] * (chunk_samples * 4)
+                peak_left = peak_right = 0.0
+                for i in range(chunk_samples):
+                    l = left[i] * gain
+                    r = right[i] * gain
+                    click = math.sin(phase)
+                    phase += phase_step
+                    if button_strong_env > 0.001:
+                        l += click * button_strong_env
+                    if button_weak_env > 0.001:
+                        r += click * button_weak_env
+                    l = math.tanh(l)
+                    r = math.tanh(r)
+                    peak_left = max(peak_left, abs(l))
+                    peak_right = max(peak_right, abs(r))
+                    frame[i * 4 + 2] = int(l * 32767)
+                    frame[i * 4 + 3] = int(r * 32767)
+                phase = math.fmod(phase, 2 * math.pi)
+
+                paplay.stdin.write(struct.pack(quad_fmt, *frame))
+                paplay.stdin.flush()
+                self._emit_levels(peak_left, peak_right)
+        finally:
+            try:
+                paplay.stdin.close()
+            except Exception:
+                pass
+            for proc in (parec, paplay):
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+            for proc in (parec, paplay):
+                try:
+                    proc.wait(timeout=1)
+                except Exception:
+                    pass
+
+    def _session_bt_direct_audio(self, dev, hidraw_path):
+        """Bluetooth, opt-in (direct_audio.bt_enabled): the same idea as
+        _session_direct_audio, but over a community-reverse-engineered BT
+        HID haptics protocol instead of a USB Audio Class interface, via the
+        external `SAxense` tool (https://github.com/egormanga/SAxense -
+        research and protocol credit: egormanga/Sdore). Confirmed against
+        real hardware to keep the same per-motor precision as the USB path
+        despite the much lower bitrate (8-bit, combined 3kHz). SAxense paces
+        and formats the actual HID reports itself; this just feeds it gain-
+        staged PCM and points its output straight at the hidraw device."""
+        rate = BT_RATE
+        chunk_samples = BT_CHUNK_SAMPLES
+        stereo_bytes = chunk_samples * 2 * 2
+        stereo_fmt = f"<{chunk_samples * 2}h"
+        phase_step = 2 * math.pi * BT_BUTTON_CLICK_HZ / rate
+
+        hidraw_file = open(hidraw_path, "wb", buffering=0)
+        parec = subprocess.Popen(
+            ["parec", "-d", "@DEFAULT_SINK@.monitor", "--format=s16le",
+             f"--rate={rate}", "--channels=2", "--raw", "--latency-msec=20"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        )
+        saxense = subprocess.Popen(
+            ["SAxense"], stdin=subprocess.PIPE, stdout=hidraw_file, stderr=subprocess.DEVNULL,
+        )
+
+        button_strong_env = button_weak_env = 0.0
+        held_keys = {}
+        hat_x = hat_y = 0
+        phase = 0.0
+
+        try:
+            while not self._stop_event.is_set():
+                data = parec.stdout.read(stereo_bytes)
+                if len(data) < stereo_bytes:
+                    if parec.poll() is not None:
+                        raise RuntimeError("audio capture (parec) exited")
+                    continue
+                if saxense.poll() is not None:
+                    raise RuntimeError("SAxense exited")
+
+                cfg = self.config
+                gain = cfg.get("direct_audio", {}).get("gain", 5.0)
+
+                while True:
+                    ev = dev.read_one()
+                    if ev is None:
+                        break
+                    if ev.type == ecodes.EV_KEY:
+                        held_keys[ev.code] = ev.value != 0
+                    elif ev.type == ecodes.EV_ABS and ev.code in (ecodes.ABS_HAT0X, ecodes.ABS_HAT0Y):
+                        if ev.code == ecodes.ABS_HAT0X:
+                            hat_x = ev.value
+                        else:
+                            hat_y = ev.value
+                        held_keys[DPAD_VIRTUAL_CODE] = hat_x != 0 or hat_y != 0
+
+                samples = struct.unpack(stereo_fmt, data)
+                left_in = samples[0::2]
+                right_in = samples[1::2]
+
+                button_strong_target = 0.0
+                button_weak_target = 0.0
+                for code_str, entry in cfg["button_haptics"].items():
+                    if not entry.get("enabled") or not held_keys.get(int(code_str), False):
+                        continue
+                    side = BUTTON_SIDE.get(int(code_str), "weak")
+                    strength = entry.get("strength", 0.4)
+                    if side == "strong":
+                        button_strong_target = max(button_strong_target, strength)
+                    else:
+                        button_weak_target = max(button_weak_target, strength)
+                button_strong_env += (button_strong_target - button_strong_env) * (
+                    BUTTON_ATTACK if button_strong_target > button_strong_env else BUTTON_RELEASE)
+                button_weak_env += (button_weak_target - button_weak_env) * (
+                    BUTTON_ATTACK if button_weak_target > button_weak_env else BUTTON_RELEASE)
+
+                out = bytearray(chunk_samples * 2)
+                peak_left = peak_right = 0.0
+                for i in range(chunk_samples):
+                    l = (left_in[i] / 32768.0) * gain
+                    r = (right_in[i] / 32768.0) * gain
+                    click = math.sin(phase)
+                    phase += phase_step
+                    if button_strong_env > 0.001:
+                        l += click * button_strong_env
+                    if button_weak_env > 0.001:
+                        r += click * button_weak_env
+                    l = math.tanh(l)
+                    r = math.tanh(r)
+                    peak_left = max(peak_left, abs(l))
+                    peak_right = max(peak_right, abs(r))
+                    out[i * 2] = int(l * 127) & 0xFF
+                    out[i * 2 + 1] = int(r * 127) & 0xFF
+                phase = math.fmod(phase, 2 * math.pi)
+
+                saxense.stdin.write(bytes(out))
+                saxense.stdin.flush()
+                self._emit_levels(peak_left, peak_right)
+        finally:
+            try:
+                saxense.stdin.close()
+            except Exception:
+                pass
+            for proc in (parec, saxense):
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+            for proc in (parec, saxense):
+                try:
+                    proc.wait(timeout=1)
+                except Exception:
+                    pass
+            try:
+                hidraw_file.close()
+            except Exception:
+                pass
+
+    def _session_ff(self, dev):
         effect = ff.Effect(
             ecodes.FF_RUMBLE, -1, 0,
             ff.Trigger(0, 0),

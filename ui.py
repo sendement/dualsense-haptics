@@ -1106,6 +1106,7 @@ class AdvancedPage(QWidget):
     def __init__(self, state, on_change):
         super().__init__()
         self.state = state
+        self.on_change = on_change
         active = state["active"]
 
         outer = QVBoxLayout(self)
@@ -1131,6 +1132,32 @@ class AdvancedPage(QWidget):
         gl.addWidget(self.gain_slider)
         inner_layout.addWidget(general_box)
 
+        direct_box = QGroupBox(t("group_direct_audio"))
+        dl = QVBoxLayout(direct_box)
+        direct_hint = QLabel(t("direct_audio_hint"))
+        direct_hint.setProperty("role", "hint")
+        direct_hint.setWordWrap(True)
+        dl.addWidget(direct_hint)
+        direct_cfg = active["direct_audio"]
+        self.direct_check = QCheckBox(t("direct_audio_checkbox"))
+        self.direct_check.setChecked(direct_cfg.get("enabled", True))
+        self.direct_check.toggled.connect(self._set_direct_enabled)
+        dl.addWidget(self.direct_check)
+        self.direct_gain_slider = ParamSlider(
+            t("label_direct_gain"), 1.0, 8.0, direct_cfg.get("gain", 5.0), 1, None, self._set_direct_gain)
+        dl.addWidget(self.direct_gain_slider)
+
+        bt_hint = QLabel(t("direct_audio_bt_hint"))
+        bt_hint.setProperty("role", "hint")
+        bt_hint.setWordWrap(True)
+        dl.addWidget(bt_hint)
+        self.direct_bt_check = QCheckBox(t("direct_audio_bt_checkbox"))
+        self.direct_bt_check.setChecked(direct_cfg.get("bt_enabled", False))
+        self.direct_bt_check.toggled.connect(self._set_direct_bt_enabled)
+        dl.addWidget(self.direct_bt_check)
+
+        inner_layout.addWidget(direct_box)
+
         self.bass_box = band_group(t("group_bass"), active["bass"], active["bass_ceiling"], on_change)
         self.treble_box = band_group(t("group_treble"), active["treble"], active["treble_ceiling"], on_change)
         inner_layout.addWidget(self.bass_box)
@@ -1143,8 +1170,31 @@ class AdvancedPage(QWidget):
     def _set_gain(self, v):
         self.state["active"]["master_gain"] = v
 
+    def _set_direct_enabled(self, checked):
+        self.state["active"]["direct_audio"]["enabled"] = checked
+        if self.on_change:
+            self.on_change()
+
+    def _set_direct_gain(self, v):
+        self.state["active"]["direct_audio"]["gain"] = v
+        if self.on_change:
+            self.on_change()
+
+    def _set_direct_bt_enabled(self, checked):
+        self.state["active"]["direct_audio"]["bt_enabled"] = checked
+        if self.on_change:
+            self.on_change()
+
     def refresh(self):
         self.gain_slider.set_value(self.state["active"]["master_gain"])
+        direct_cfg = self.state["active"]["direct_audio"]
+        self.direct_check.blockSignals(True)
+        self.direct_check.setChecked(direct_cfg.get("enabled", True))
+        self.direct_check.blockSignals(False)
+        self.direct_gain_slider.set_value(direct_cfg.get("gain", 5.0))
+        self.direct_bt_check.blockSignals(True)
+        self.direct_bt_check.setChecked(direct_cfg.get("bt_enabled", False))
+        self.direct_bt_check.blockSignals(False)
         self.bass_box.refresh()
         self.treble_box.refresh()
 
