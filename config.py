@@ -27,7 +27,11 @@ def _merge_defaults(cfg, defaults):
 
 def _default_state():
     return {
-        "active": preset_params("balanced"),
+        # preset_params() only carries the DSP fields the presets dict
+        # defines (bass/treble/gain) - merge in DEFAULT_CONFIG so fields
+        # added later (button_haptics) exist even on a brand new install
+        # with no config.json yet.
+        "active": _merge_defaults(preset_params("balanced"), DEFAULT_CONFIG),
         "active_ref": "preset:balanced",
         "profiles": {},
         "trigger_preset_left": None,

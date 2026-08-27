@@ -1,7 +1,7 @@
 # Maintainer: local build, not published
 pkgname=dualsense-haptics
 pkgver=1.2.0
-pkgrel=6
+pkgrel=7
 pkgdesc="Audio-to-haptics daemon and GUI for the DualSense controller over Bluetooth"
 arch=('any')
 # dualsensectl is AUR-only (github.com/nowrep/dualsensectl); pacman -U only
