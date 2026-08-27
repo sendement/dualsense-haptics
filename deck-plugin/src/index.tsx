@@ -4,11 +4,13 @@ import {
   ToggleField,
   SliderField,
   DropdownItem,
+  ButtonItem,
   staticClasses,
 } from "@decky/ui";
 import { callable, definePlugin } from "@decky/api";
 import { useState, useEffect } from "react";
 import { FaGamepad } from "react-icons/fa";
+import { LANGUAGES, t as translate } from "./i18n";
 
 interface Status {
   running: boolean;
@@ -22,6 +24,11 @@ interface DirectAudio {
   enabled: boolean;
   gain: number;
   bt_enabled: boolean;
+}
+
+interface CustomTrigger {
+  mode: string;
+  values: Record<string, number>;
 }
 
 const startEngine = callable<[], boolean>("start_engine");
@@ -42,64 +49,80 @@ const listTriggerPresets = callable<[], string[]>("list_trigger_presets");
 const getTriggerPreset = callable<[side: string], string | null>("get_trigger_preset");
 const applyTriggerPreset = callable<[preset_id: string, side: string], boolean>("apply_trigger_preset");
 const turnOffTrigger = callable<[side: string], boolean>("turn_off_trigger");
+const getCustomTrigger = callable<[side: string], CustomTrigger | null>("get_custom_trigger");
+const applyCustomTrigger = callable<[mode: string, values: Record<string, number>, side: string], boolean>(
+  "apply_custom_trigger",
+);
 
 const getDirectAudio = callable<[], DirectAudio>("get_direct_audio");
 const setDirectAudioEnabled = callable<[value: boolean], boolean>("set_direct_audio_enabled");
 const setDirectAudioBtEnabled = callable<[value: boolean], boolean>("set_direct_audio_bt_enabled");
 
-const PRESET_LABELS: Record<string, string> = {
-  balanced: "Balanced",
-  cinema: "Cinema",
-  music: "Music",
-  voice: "Voice & Podcasts",
-  max: "Maximum Sensitivity",
+const getLanguage = callable<[], string>("get_language");
+const setLanguage = callable<[code: string], boolean>("set_language");
+
+const PRESET_LABEL_KEYS: Record<string, string> = {
+  balanced: "preset_balanced_label",
+  cinema: "preset_cinema_label",
+  music: "preset_music_label",
+  voice: "preset_voice_label",
+  max: "preset_max_label",
 };
 
-const TRIGGER_LABELS: Record<string, string> = {
-  off: "Off",
-  soft: "Soft Resistance",
-  hard_wall: "Hard Wall",
-  weapon: "Weapon Trigger",
-  bow: "Bow",
-  machine: "Machine Gun",
-  clicker: "Clicker",
-  gallop: "Gallop",
-  strong_click: "Strong Click",
-  engine_hum: "Engine Hum",
+const TRIGGER_PRESET_LABEL_KEYS: Record<string, string> = {
+  soft: "trigger_soft_label",
+  hard_wall: "trigger_hard_wall_label",
+  weapon: "trigger_weapon_label",
+  bow: "trigger_bow_label",
+  machine: "trigger_machine_label",
+  clicker: "trigger_clicker_label",
+  gallop: "trigger_gallop_label",
+  strong_click: "trigger_strong_click_label",
+  engine_hum: "trigger_engine_hum_label",
 };
 
-function TriggerRow({ side, label }: { side: "left" | "right"; label: string }) {
-  const [options, setOptions] = useState<string[]>([]);
-  const [selected, setSelected] = useState<string>("off");
+// Mirrors presets.TRIGGER_EFFECT_ORDER / TRIGGER_EFFECT_PARAMS in presets.py.
+const TRIGGER_EFFECT_ORDER = ["off", "feedback", "weapon", "bow", "machine", "galloping", "vibration"];
+const TRIGGER_MODE_LABEL_KEYS: Record<string, string> = {
+  off: "label_trigger_off",
+  feedback: "trig_mode_feedback",
+  weapon: "trig_mode_weapon",
+  bow: "trig_mode_bow",
+  machine: "trig_mode_machine",
+  galloping: "trig_mode_galloping",
+  vibration: "trig_mode_vibration",
+};
+const TRIGGER_EFFECT_PARAMS: Record<string, [string, number, number, number][]> = {
+  off: [],
+  feedback: [["position", 0, 9, 2], ["strength", 1, 8, 3]],
+  weapon: [["start", 2, 7, 3], ["end", 3, 8, 6], ["strength", 1, 8, 6]],
+  bow: [["start", 1, 8, 2], ["end", 2, 8, 7], ["strength", 1, 8, 6], ["snap", 1, 8, 8]],
+  machine: [
+    ["start", 1, 8, 2], ["end", 2, 9, 8], ["strength_a", 0, 7, 1],
+    ["strength_b", 0, 7, 7], ["frequency", 1, 15, 4], ["period", 0, 15, 2],
+  ],
+  galloping: [
+    ["start", 0, 8, 1], ["end", 1, 9, 8], ["first_foot", 0, 6, 3],
+    ["second_foot", 1, 7, 5], ["frequency", 1, 15, 5],
+  ],
+  vibration: [["position", 0, 9, 1], ["amplitude", 1, 8, 6], ["frequency", 1, 15, 3]],
+};
+const TRIGGER_PARAM_LABEL_KEYS: Record<string, string> = {
+  position: "trig_param_position", strength: "trig_param_strength",
+  start: "trig_param_start", end: "trig_param_end", snap: "trig_param_snap",
+  strength_a: "trig_param_strength_a", strength_b: "trig_param_strength_b",
+  frequency: "trig_param_frequency", period: "trig_param_period",
+  first_foot: "trig_param_first_foot", second_foot: "trig_param_second_foot",
+  amplitude: "trig_param_amplitude",
+};
 
-  useEffect(() => {
-    (async () => {
-      const presets = await listTriggerPresets();
-      setOptions(["off", ...presets]);
-      const active = await getTriggerPreset(side);
-      setSelected(active ?? "off");
-    })();
-  }, []);
-
-  const onChange = async (option: { data: string }) => {
-    setSelected(option.data);
-    if (option.data === "off") await turnOffTrigger(side);
-    else await applyTriggerPreset(option.data, side);
-  };
-
-  return (
-    <PanelSectionRow>
-      <DropdownItem
-        label={label}
-        rgOptions={options.map((p) => ({ data: p, label: TRIGGER_LABELS[p] ?? p }))}
-        selectedOption={selected}
-        onChange={onChange}
-      />
-    </PanelSectionRow>
-  );
+function defaultValues(mode: string): Record<string, number> {
+  const values: Record<string, number> = {};
+  for (const [key, , , def] of TRIGGER_EFFECT_PARAMS[mode] ?? []) values[key] = def;
+  return values;
 }
 
-function Content() {
+function MainSection({ t }: { t: (key: string) => string }) {
   const [enabled, setEnabled] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [connection, setConnection] = useState<string | null>(null);
@@ -128,6 +151,7 @@ function Content() {
       setEnabled(s.running);
     }, 2000);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const onToggle = async (value: boolean) => {
@@ -153,15 +177,14 @@ function Content() {
     await setGain(value);
   };
 
-  const connectionLabel =
-    connection === "usb" ? "USB" : connection === "bluetooth" ? "Bluetooth" : "—";
+  const connectionLabel = connection === "usb" ? "USB" : connection === "bluetooth" ? "Bluetooth" : "—";
   const statusLabel =
-    status === "connected" ? "Connected" : status === "searching" ? "Searching…" : status ?? "—";
+    status === "connected" ? t("status_connected") : status === "searching" ? t("status_searching") : status ?? "—";
 
   return (
     <PanelSection title="DualSense Haptics">
       <PanelSectionRow>
-        <ToggleField label="Vibration" checked={enabled} onChange={onToggle} />
+        <ToggleField label={t("home_vibration")} checked={enabled} onChange={onToggle} />
       </PanelSectionRow>
       <PanelSectionRow>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85em", opacity: 0.75 }}>
@@ -171,8 +194,8 @@ function Content() {
       </PanelSectionRow>
       <PanelSectionRow>
         <DropdownItem
-          label="Preset"
-          rgOptions={presetList.map((p) => ({ data: p, label: PRESET_LABELS[p] ?? p }))}
+          label={t("preset_label")}
+          rgOptions={presetList.map((p) => ({ data: p, label: t(PRESET_LABEL_KEYS[p] ?? p) }))}
           selectedOption={activePreset}
           onChange={onPresetChange}
         />
@@ -180,7 +203,7 @@ function Content() {
       {profileList.length > 0 && (
         <PanelSectionRow>
           <DropdownItem
-            label="Profile"
+            label={t("profile_label")}
             rgOptions={profileList.map((p) => ({ data: p, label: p }))}
             selectedOption={activeProfile}
             onChange={onProfileChange}
@@ -189,7 +212,7 @@ function Content() {
       )}
       <PanelSectionRow>
         <SliderField
-          label="Strength"
+          label={t("label_direct_gain")}
           value={gain}
           min={0.2}
           max={2.5}
@@ -202,21 +225,112 @@ function Content() {
   );
 }
 
-function TriggersSection() {
+function TriggerPresetRow({ side, label, t }: { side: "left" | "right"; label: string; t: (key: string) => string }) {
+  const [options, setOptions] = useState<string[]>([]);
+  const [selected, setSelected] = useState<string>("off");
+
+  useEffect(() => {
+    (async () => {
+      const list = await listTriggerPresets();
+      setOptions(["off", ...list]);
+      const active = await getTriggerPreset(side);
+      setSelected(active ?? "off");
+    })();
+  }, [side]);
+
+  const onChange = async (option: { data: string }) => {
+    setSelected(option.data);
+    if (option.data === "off") await turnOffTrigger(side);
+    else await applyTriggerPreset(option.data, side);
+  };
+
   return (
-    <PanelSection title="Adaptive Triggers">
-      <TriggerRow side="left" label="Left (L2)" />
-      <TriggerRow side="right" label="Right (R2)" />
+    <PanelSectionRow>
+      <DropdownItem
+        label={label}
+        rgOptions={options.map((p) => ({
+          data: p,
+          label: p === "off" ? t("label_trigger_off") : t(TRIGGER_PRESET_LABEL_KEYS[p] ?? p),
+        }))}
+        selectedOption={selected}
+        onChange={onChange}
+      />
+    </PanelSectionRow>
+  );
+}
+
+function TriggersSection({ t }: { t: (key: string) => string }) {
+  return (
+    <PanelSection title={t("triggers_title")}>
+      <TriggerPresetRow side="left" label={t("trigger_left_title")} t={t} />
+      <TriggerPresetRow side="right" label={t("trigger_right_title")} t={t} />
     </PanelSection>
   );
 }
 
-function DirectAudioSection() {
-  const [directAudio, setDirectAudioState] = useState<DirectAudio>({
-    enabled: true,
-    gain: 5.0,
-    bt_enabled: false,
-  });
+function CustomTriggerCard({ side, label, t }: { side: "left" | "right"; label: string; t: (key: string) => string }) {
+  const [mode, setMode] = useState<string>("feedback");
+  const [values, setValues] = useState<Record<string, number>>(defaultValues("feedback"));
+
+  useEffect(() => {
+    (async () => {
+      const custom = await getCustomTrigger(side);
+      if (custom && custom.mode) {
+        setMode(custom.mode);
+        setValues({ ...defaultValues(custom.mode), ...custom.values });
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [side]);
+
+  const onModeChange = (option: { data: string }) => {
+    setMode(option.data);
+    setValues(defaultValues(option.data));
+  };
+
+  const onParamChange = (key: string, value: number) => {
+    setValues((v) => ({ ...v, [key]: value }));
+  };
+
+  const onApply = async () => {
+    if (mode === "off") await turnOffTrigger(side);
+    else await applyCustomTrigger(mode, values, side);
+  };
+
+  return (
+    <PanelSection title={`${t("trigger_custom_title")} · ${label}`}>
+      <PanelSectionRow>
+        <DropdownItem
+          label={t("mode_label")}
+          rgOptions={TRIGGER_EFFECT_ORDER.map((m) => ({ data: m, label: t(TRIGGER_MODE_LABEL_KEYS[m] ?? m) }))}
+          selectedOption={mode}
+          onChange={onModeChange}
+        />
+      </PanelSectionRow>
+      {(TRIGGER_EFFECT_PARAMS[mode] ?? []).map(([key, lo, hi]) => (
+        <PanelSectionRow key={key}>
+          <SliderField
+            label={t(TRIGGER_PARAM_LABEL_KEYS[key] ?? key)}
+            value={values[key] ?? lo}
+            min={lo}
+            max={hi}
+            step={1}
+            notchTicksVisible={false}
+            onChange={(v: number) => onParamChange(key, v)}
+          />
+        </PanelSectionRow>
+      ))}
+      <PanelSectionRow>
+        <ButtonItem layout="below" onClick={onApply}>
+          {t("btn_apply")}
+        </ButtonItem>
+      </PanelSectionRow>
+    </PanelSection>
+  );
+}
+
+function DirectAudioSection({ t }: { t: (key: string) => string }) {
+  const [directAudio, setDirectAudioState] = useState<DirectAudio>({ enabled: true, gain: 5.0, bt_enabled: false });
 
   useEffect(() => {
     (async () => setDirectAudioState(await getDirectAudio()))();
@@ -233,22 +347,55 @@ function DirectAudioSection() {
   };
 
   return (
-    <PanelSection title="Direct Audio">
+    <PanelSection title={t("direct_audio_title")}>
       <PanelSectionRow>
-        <ToggleField
-          label="USB (literal audio on the motors)"
-          checked={directAudio.enabled}
-          onChange={onUsbToggle}
-        />
+        <ToggleField label={`USB — ${t("direct_audio_checkbox")}`} checked={directAudio.enabled} onChange={onUsbToggle} />
       </PanelSectionRow>
       <PanelSectionRow>
-        <ToggleField
-          label="Bluetooth (experimental, needs SAxense)"
-          checked={directAudio.bt_enabled}
-          onChange={onBtToggle}
+        <ToggleField label={t("direct_audio_bt_checkbox")} checked={directAudio.bt_enabled} onChange={onBtToggle} />
+      </PanelSectionRow>
+    </PanelSection>
+  );
+}
+
+function SettingsSection({ lang, onLangChange, t }: { lang: string; onLangChange: (code: string) => void; t: (key: string) => string }) {
+  return (
+    <PanelSection title={t("group_language")}>
+      <PanelSectionRow>
+        <DropdownItem
+          label={t("group_language")}
+          rgOptions={LANGUAGES.map(([code, name]) => ({ data: code, label: name }))}
+          selectedOption={lang}
+          onChange={(option: { data: string }) => onLangChange(option.data)}
         />
       </PanelSectionRow>
     </PanelSection>
+  );
+}
+
+function Root() {
+  const [lang, setLang] = useState("en");
+
+  useEffect(() => {
+    (async () => setLang(await getLanguage()))();
+  }, []);
+
+  const t = (key: string) => translate(lang, key);
+
+  const onLangChange = async (code: string) => {
+    setLang(code);
+    await setLanguage(code);
+  };
+
+  return (
+    <>
+      <MainSection t={t} />
+      <TriggersSection t={t} />
+      <CustomTriggerCard side="left" label={t("trigger_left_title")} t={t} />
+      <CustomTriggerCard side="right" label={t("trigger_right_title")} t={t} />
+      <DirectAudioSection t={t} />
+      <SettingsSection lang={lang} onLangChange={onLangChange} t={t} />
+    </>
   );
 }
 
@@ -256,13 +403,7 @@ export default definePlugin(() => {
   return {
     name: "DualSense Haptics",
     titleView: <div className={staticClasses.Title}>DualSense Haptics</div>,
-    content: (
-      <>
-        <Content />
-        <TriggersSection />
-        <DirectAudioSection />
-      </>
-    ),
+    content: <Root />,
     icon: <FaGamepad />,
     onDismount() {},
   };

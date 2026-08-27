@@ -45,6 +45,23 @@ def _write_config(raw):
         json.dump(raw, f, indent=2, ensure_ascii=False)
 
 
+def _build_custom_args(mode, values):
+    """Duplicated from triggers.py (not importable here - see module
+    docstring): "end"-style params must exceed their paired "start" param or
+    dualsensectl rejects the whole command, so bump it up (clamped to its
+    own max) rather than constrain the sliders live."""
+    if mode == "off":
+        return ["off"]
+    spec = presets.TRIGGER_EFFECT_PARAMS[mode]
+    bounds = {key: (lo, hi) for key, lo, hi, _default in spec}
+    values = dict(values)
+    for start_key, end_key in (("start", "end"), ("first_foot", "second_foot")):
+        if start_key in values and end_key in values and values[end_key] <= values[start_key]:
+            _lo, hi = bounds[end_key]
+            values[end_key] = min(values[start_key] + 1, hi)
+    return [mode] + [str(int(values[key])) for key, _lo, _hi, _default in spec]
+
+
 class Plugin:
     async def _main(self):
         self.proc = None
@@ -205,5 +222,34 @@ class Plugin:
     async def set_direct_audio_bt_enabled(self, value: bool) -> bool:
         raw = _read_config() or {}
         raw.setdefault("active", {}).setdefault("direct_audio", {})["bt_enabled"] = value
+        _write_config(raw)
+        return True
+
+    async def get_custom_trigger(self, side: str):
+        raw = _read_config() or {}
+        return raw.get(f"trigger_custom_{side}")
+
+    async def apply_custom_trigger(self, mode: str, values: dict, side: str) -> bool:
+        args = _build_custom_args(mode, values)
+        try:
+            result = subprocess.run(["dualsensectl", "trigger", side] + args,
+                                     capture_output=True, text=True, timeout=3)
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        if result.returncode != 0:
+            return False
+        raw = _read_config() or {}
+        raw[f"trigger_preset_{side}"] = "custom" if mode != "off" else None
+        raw[f"trigger_custom_{side}"] = {"mode": mode, "values": values}
+        _write_config(raw)
+        return True
+
+    async def get_language(self) -> str:
+        raw = _read_config() or {}
+        return raw.get("language", "en")
+
+    async def set_language(self, code: str) -> bool:
+        raw = _read_config() or {}
+        raw["language"] = code
         _write_config(raw)
         return True
