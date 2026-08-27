@@ -36,9 +36,12 @@ one-shot HID reports rather than something worth reimplementing here.
   Sensitivity) plus your own saved profiles.
 - **Adaptive triggers** — 7 resistance presets (soft resistance, hard wall,
   weapon trigger, bow, machine gun, ratchet, gallop), set independently per
-  trigger (L2/R2). If a game is already driving the triggers itself, the app
-  detects that the device is held open elsewhere and skips automatically
-  re-applying its own effect on reconnect, so it won't fight the game.
+  trigger (L2/R2), plus a **custom effect builder** to dial in the raw
+  `dualsensectl` parameters (mode, position, strength, frequency, etc.) by
+  hand and experiment beyond the presets. If a game is already driving the
+  triggers itself, the app detects that the device is held open elsewhere
+  and skips automatically re-applying its own effect on reconnect, so it
+  won't fight the game.
 - **Per-button haptics** — pick any face button, bumper, trigger click,
   stick click, or the D-pad to buzz lightly while held, mixed with the audio
   vibration, at its own strength, from the motor on that side of the pad.
