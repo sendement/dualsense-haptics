@@ -64,6 +64,8 @@ const TRIGGER_LABELS: Record<string, string> = {
   machine: "Machine Gun",
   clicker: "Clicker",
   gallop: "Gallop",
+  strong_click: "Strong Click",
+  engine_hum: "Engine Hum",
 };
 
 function TriggerRow({ side, label }: { side: "left" | "right"; label: string }) {

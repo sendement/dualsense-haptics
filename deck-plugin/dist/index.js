@@ -117,6 +117,8 @@ const TRIGGER_LABELS = {
     machine: "Machine Gun",
     clicker: "Clicker",
     gallop: "Gallop",
+    strong_click: "Strong Click",
+    engine_hum: "Engine Hum",
 };
 function TriggerRow({ side, label }) {
     const [options, setOptions] = SP_REACT.useState([]);

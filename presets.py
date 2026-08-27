@@ -83,9 +83,16 @@ TRIGGER_PRESETS = {
     "machine": {"args": ["machine", "2", "8", "1", "7", "4", "2"]},
     "clicker": {"args": ["vibration", "1", "6", "3"]},
     "gallop": {"args": ["galloping", "1", "8", "3", "5", "5"]},
+    # Both confirmed against real hardware: same "vibration" effect as
+    # clicker/gallop, just at the opposite ends of amplitude/frequency -
+    # low frequency + high amplitude reads as separate strong thuds, high
+    # frequency + low amplitude blurs into a smooth low-power buzz.
+    "strong_click": {"args": ["vibration", "1", "8", "1"]},
+    "engine_hum": {"args": ["vibration", "1", "3", "10"]},
 }
 
-TRIGGER_PRESET_ORDER = ["soft", "hard_wall", "weapon", "bow", "machine", "clicker", "gallop"]
+TRIGGER_PRESET_ORDER = ["soft", "hard_wall", "weapon", "bow", "machine", "clicker", "gallop",
+                         "strong_click", "engine_hum"]
 
 # Custom trigger effect builder: raw dualsensectl parameters per effect
 # mode, as (key, lo, hi, default). Ranges are copied from dualsensectl's own
