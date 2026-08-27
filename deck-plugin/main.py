@@ -1,0 +1,209 @@
+"""Decky Loader plugin backend.
+
+Deliberately does NOT import haptics_engine.py or config.py here (both pull
+in python-evdev, which has a compiled C extension - importing that inside
+Decky's PyInstaller-frozen PluginLoader process reliably fails with a
+"partially initialized module" error). Instead this process only manages a
+plain `python3 headless_runner.py` child process (a normal, unfrozen
+interpreter where evdev imports fine) and talks to it via the filesystem:
+this file reads/writes config.json directly (mirroring config.py's own
+format closely enough that the runner's config.load_state() - which does
+the real default-merging - reads it back correctly) and polls status.json
+that the runner writes. presets.py has no evdev dependency, so it's
+imported directly and safely.
+"""
+import json
+import os
+import subprocess
+import sys
+
+import decky
+
+os.environ.setdefault("XDG_CONFIG_HOME", decky.DECKY_PLUGIN_SETTINGS_DIR)
+
+PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
+PY_MODULES_DIR = os.path.join(PLUGIN_DIR, "py_modules")
+RUNNER_PATH = os.path.join(PY_MODULES_DIR, "headless_runner.py")
+# Matches config.py's own CONFIG_DIR computation (XDG_CONFIG_HOME/dualsense-haptics).
+CONFIG_FILE = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "dualsense-haptics", "config.json")
+
+sys.path.insert(0, PY_MODULES_DIR)
+import presets  # noqa: E402 - pure Python, no evdev dependency, safe here
+
+
+def _read_config():
+    try:
+        with open(CONFIG_FILE) as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _write_config(raw):
+    os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(raw, f, indent=2, ensure_ascii=False)
+
+
+class Plugin:
+    async def _main(self):
+        self.proc = None
+        decky.logger.info("DualSense Haptics (Deck) loaded")
+
+    async def _unload(self):
+        await self.stop_engine()
+        decky.logger.info("DualSense Haptics (Deck) unloaded")
+
+    async def start_engine(self) -> bool:
+        if self.proc is None or self.proc.poll() is not None:
+            os.makedirs(decky.DECKY_PLUGIN_RUNTIME_DIR, exist_ok=True)
+            env = dict(os.environ)
+            # Decky's plugin process doesn't inherit a desktop session
+            # environment, so parec/paplay/pactl (PipeWire/PulseAudio
+            # clients) can't otherwise find the user's audio server socket.
+            env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+            self.proc = subprocess.Popen(
+                ["/usr/bin/python3", RUNNER_PATH, decky.DECKY_PLUGIN_RUNTIME_DIR],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env,
+            )
+        return True
+
+    async def stop_engine(self) -> bool:
+        if self.proc is not None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+            self.proc = None
+        return True
+
+    async def is_running(self) -> bool:
+        return self.proc is not None and self.proc.poll() is None
+
+    async def get_status(self) -> dict:
+        result = {
+            "running": self.proc is not None and self.proc.poll() is None,
+            "status": None, "connection": None,
+            "battery_percent": None, "battery_status": None,
+        }
+        status_file = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "status.json")
+        try:
+            with open(status_file) as f:
+                result.update(json.load(f))
+        except (OSError, json.JSONDecodeError):
+            pass
+        result["running"] = self.proc is not None and self.proc.poll() is None
+        return result
+
+    async def list_presets(self) -> list:
+        return presets.PRESET_ORDER
+
+    async def get_active_preset(self):
+        raw = _read_config() or {}
+        ref = raw.get("active_ref", "")
+        if ref.startswith("preset:"):
+            return ref.split(":", 1)[1]
+        return None
+
+    async def apply_preset(self, preset_id: str) -> bool:
+        raw = _read_config() or {}
+        params = presets.preset_params(preset_id)
+        active = raw.setdefault("active", {})
+        for key in ("master_gain", "bass_cutoff_hz", "treble_cutoff_hz"):
+            active[key] = params[key]
+        for band in ("bass", "treble", "bass_ceiling", "treble_ceiling"):
+            active[band] = params[band]
+        raw["active_ref"] = f"preset:{preset_id}"
+        _write_config(raw)
+        return True
+
+    async def get_gain(self) -> float:
+        raw = _read_config() or {}
+        return raw.get("active", {}).get("master_gain", 1.0)
+
+    async def set_gain(self, value: float) -> bool:
+        raw = _read_config() or {}
+        raw.setdefault("active", {})["master_gain"] = value
+        raw["active_ref"] = "custom"
+        _write_config(raw)
+        return True
+
+    async def list_profiles(self) -> list:
+        raw = _read_config() or {}
+        return list(raw.get("profiles", {}).keys())
+
+    async def get_active_profile(self):
+        raw = _read_config() or {}
+        ref = raw.get("active_ref", "")
+        if ref.startswith("profile:"):
+            return ref.split(":", 1)[1]
+        return None
+
+    async def apply_profile(self, name: str) -> bool:
+        raw = _read_config() or {}
+        profile = raw.get("profiles", {}).get(name)
+        if profile is None:
+            return False
+        active = raw.setdefault("active", {})
+        for key in ("master_gain", "bass_cutoff_hz", "treble_cutoff_hz"):
+            if key in profile:
+                active[key] = profile[key]
+        for band in ("bass", "treble", "bass_ceiling", "treble_ceiling"):
+            if band in profile:
+                active[band] = profile[band]
+        raw["active_ref"] = f"profile:{name}"
+        _write_config(raw)
+        return True
+
+    async def list_trigger_presets(self) -> list:
+        return presets.TRIGGER_PRESET_ORDER
+
+    async def get_trigger_preset(self, side: str):
+        raw = _read_config() or {}
+        return raw.get(f"trigger_preset_{side}")
+
+    async def apply_trigger_preset(self, preset_id: str, side: str) -> bool:
+        if preset_id not in presets.TRIGGER_PRESETS:
+            return False
+        args = ["dualsensectl", "trigger", side] + presets.TRIGGER_PRESETS[preset_id]["args"]
+        try:
+            result = subprocess.run(args, capture_output=True, text=True, timeout=3)
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        if result.returncode != 0:
+            return False
+        raw = _read_config() or {}
+        raw[f"trigger_preset_{side}"] = preset_id
+        _write_config(raw)
+        return True
+
+    async def turn_off_trigger(self, side: str) -> bool:
+        try:
+            result = subprocess.run(["dualsensectl", "trigger", side, "off"],
+                                     capture_output=True, text=True, timeout=3)
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        if result.returncode != 0:
+            return False
+        raw = _read_config() or {}
+        raw[f"trigger_preset_{side}"] = None
+        _write_config(raw)
+        return True
+
+    async def get_direct_audio(self) -> dict:
+        raw = _read_config() or {}
+        return raw.get("active", {}).get(
+            "direct_audio", {"enabled": True, "gain": 5.0, "bt_enabled": False})
+
+    async def set_direct_audio_enabled(self, value: bool) -> bool:
+        raw = _read_config() or {}
+        raw.setdefault("active", {}).setdefault("direct_audio", {})["enabled"] = value
+        _write_config(raw)
+        return True
+
+    async def set_direct_audio_bt_enabled(self, value: bool) -> bool:
+        raw = _read_config() or {}
+        raw.setdefault("active", {}).setdefault("direct_audio", {})["bt_enabled"] = value
+        _write_config(raw)
+        return True

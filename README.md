@@ -78,6 +78,9 @@ one-shot HID reports rather than something worth reimplementing here.
 - **Light / dark / system theme**, and **9 languages** (English, Russian,
   Chinese, Spanish, German, French, Japanese, Portuguese, Korean) — both
   switchable live from Settings, no restart needed.
+- **Steam Deck / SteamOS**: a [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader)
+  plugin (see [`deck-plugin/`](deck-plugin/)) puts the essentials in the
+  Quick Access Menu — no need to leave Game Mode.
 
 ## Requirements
 
@@ -152,6 +155,35 @@ on **Advanced Settings → Direct Audio → Enable over Bluetooth
 git clone https://github.com/egormanga/SAxense.git
 cd SAxense && make && sudo install -Dm755 SAxense /usr/local/bin/SAxense
 ```
+
+## Steam Deck / SteamOS (Decky Loader plugin)
+
+A trimmed-down version lives under [`deck-plugin/`](deck-plugin/) as a
+[Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin -
+a Quick Access Menu panel instead of a window, for using it without leaving
+Game Mode. It shares the same engine as the desktop app (same
+`haptics_engine.py`/`config.py`/`presets.py`, vendored unchanged) and reads
+the same kind of config, just through a much smaller set of controls: an
+on/off toggle, connection/battery status, presets, saved profiles (created
+on desktop, selectable here), adaptive trigger presets, and the Direct
+Audio USB/Bluetooth toggles. Per-button haptics and the custom trigger
+builder are desktop-only - deliberately left out to keep the QAM panel to a
+handful of widgets.
+
+Requires [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader#-installation)
+already installed. Then:
+
+```sh
+git clone https://github.com/sendement/dualsense-haptics.git
+cd dualsense-haptics/deck-plugin
+./install.sh
+```
+
+`install.sh` copies a prebuilt frontend (`dist/`, committed in this repo so
+a Node toolchain isn't needed on the Deck itself) into
+`~/homebrew/plugins/` and restarts the `plugin_loader` service. To rebuild
+the frontend yourself after editing `src/index.tsx`: `npm install && npm
+run build`, then re-run `install.sh`.
 
 ## Usage
 

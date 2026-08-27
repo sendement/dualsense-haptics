@@ -5,3 +5,7 @@ __pycache__/
 packaging/pkg/
 packaging/src/
 packaging/*.pkg.tar.*
+
+# Decky plugin build tooling - dist/ IS committed (install.sh needs it, and
+# most SteamOS installs have no Node toolchain to build it themselves)
+deck-plugin/node_modules/

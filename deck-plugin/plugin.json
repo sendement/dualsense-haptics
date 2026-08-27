@@ -1,0 +1,11 @@
+{
+  "name": "DualSense Haptics",
+  "author": "sendement",
+  "flags": ["debug"],
+  "api_version": 1,
+  "publish": {
+    "tags": ["controller", "dualsense", "haptics", "audio"],
+    "description": "Audio-reactive haptics for the DualSense controller, in the Quick Access Menu.",
+    "image": "https://opengraph.githubassets.com/1/sendement/dualsense-haptics"
+  }
+}
