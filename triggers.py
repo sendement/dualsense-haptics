@@ -16,7 +16,7 @@ import subprocess
 import evdev
 from evdev import ecodes
 
-from presets import TRIGGER_PRESETS
+from presets import TRIGGER_PRESETS, TRIGGER_EFFECT_PARAMS
 from haptics_engine import SONY_VENDOR_ID, DUALSENSE_PRODUCT_IDS
 
 
@@ -75,6 +75,34 @@ def apply_trigger_preset(preset_id, trigger="both"):
     args = ["dualsensectl", "trigger", trigger] + TRIGGER_PRESETS[preset_id]["args"]
     try:
         result = subprocess.run(args, capture_output=True, text=True, timeout=3)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return False, str(e)
+    if result.returncode != 0:
+        return False, result.stderr.strip() or "dualsensectl failed"
+    return True, ""
+
+
+def build_custom_args(mode, values):
+    """Builds the dualsensectl arg list for a custom effect. "end"-style
+    params must exceed their paired "start" param or dualsensectl rejects
+    the whole command - rather than constrain the sliders live, just bump
+    the value up (clamped to its own max) here on apply."""
+    if mode == "off":
+        return ["off"]
+    spec = TRIGGER_EFFECT_PARAMS[mode]
+    bounds = {key: (lo, hi) for key, lo, hi, _default in spec}
+    values = dict(values)
+    for start_key, end_key in (("start", "end"), ("first_foot", "second_foot")):
+        if start_key in values and end_key in values and values[end_key] <= values[start_key]:
+            _lo, hi = bounds[end_key]
+            values[end_key] = min(values[start_key] + 1, hi)
+    return [mode] + [str(values[key]) for key, _lo, _hi, _default in spec]
+
+
+def apply_custom_trigger(mode, values, trigger="both"):
+    args = build_custom_args(mode, values)
+    try:
+        result = subprocess.run(["dualsensectl", "trigger", trigger] + args, capture_output=True, text=True, timeout=3)
     except (OSError, subprocess.TimeoutExpired) as e:
         return False, str(e)
     if result.returncode != 0:

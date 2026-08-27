@@ -20,7 +20,10 @@ from PySide6.QtWidgets import (
 
 from evdev import ecodes as ec
 
-from presets import PRESETS, PRESET_ORDER, preset_params, TRIGGER_PRESETS, TRIGGER_PRESET_ORDER
+from presets import (
+    PRESETS, PRESET_ORDER, preset_params, TRIGGER_PRESETS, TRIGGER_PRESET_ORDER,
+    TRIGGER_EFFECT_ORDER, TRIGGER_EFFECT_PARAMS,
+)
 from haptics_engine import DPAD_VIRTUAL_CODE
 import triggers
 import theme
@@ -445,6 +448,43 @@ class ParamSlider(QWidget):
         self._update_label(v)
 
 
+class IntSlider(QWidget):
+    """Plain integer slider (no float remapping) for the small raw ranges
+    dualsensectl's custom trigger parameters use, e.g. 0-9."""
+
+    def __init__(self, label, lo, hi, value, on_change=None):
+        super().__init__()
+        self.on_change = on_change
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 4, 0, 4)
+        layout.setSpacing(2)
+
+        row = QHBoxLayout()
+        name = QLabel(label)
+        self.value_label = QLabel(str(value))
+        self.value_label.setProperty("role", "value")
+        self.value_label.setAlignment(Qt.AlignRight)
+        row.addWidget(name)
+        row.addStretch(1)
+        row.addWidget(self.value_label)
+        layout.addLayout(row)
+
+        self.slider = QSlider(Qt.Horizontal)
+        self.slider.setRange(lo, hi)
+        self.slider.setValue(value)
+        self.slider.valueChanged.connect(self._changed)
+        layout.addWidget(self.slider)
+
+    def _changed(self, v):
+        self.value_label.setText(str(v))
+        if self.on_change:
+            self.on_change(v)
+
+    def value(self):
+        return self.slider.value()
+
+
 def band_group(title, cfg, ceil_cfg, on_change):
     box = QGroupBox(title)
     layout = QVBoxLayout(box)
@@ -501,6 +541,10 @@ def ref_label(state):
 
 def trigger_ref_label(state, side):
     pid = state.get(f"trigger_preset_{side}")
+    if pid == "custom":
+        custom = state.get(f"trigger_custom_{side}") or {}
+        mode = custom.get("mode", "off")
+        return f"{t('label_trigger_custom')}: {t(f'trig_mode_{mode}')}"
     if pid and pid in TRIGGER_PRESETS:
         return t(f"trigger_{pid}_label")
     return t("label_trigger_off")
@@ -789,10 +833,89 @@ class ProfilesPage(QWidget):
         self.refresh()
 
 
+class CustomTriggerCard(QFrame):
+    """Lets the user build a raw dualsensectl trigger effect by hand - pick
+    an effect mode, dial in its parameters, apply. Restores whatever was
+    last applied on this side (if anything), so reopening the app or
+    switching pages doesn't lose what was already dialed in."""
+
+    def __init__(self, state, side, on_apply, on_off):
+        super().__init__()
+        self.setObjectName("card")
+        self.side = side
+        self.on_apply = on_apply
+        self.on_off = on_off
+        self.slider_widgets = []
+
+        layout = QVBoxLayout(self)
+        title = QLabel(t("trigger_custom_title"))
+        title.setStyleSheet("font-size: 14px; font-weight: 700;")
+        layout.addWidget(title)
+        hint = QLabel(t("trigger_custom_hint"))
+        hint.setProperty("role", "hint")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        saved = state.get(f"trigger_custom_{side}") or {}
+        initial_mode = saved.get("mode")
+        if initial_mode not in TRIGGER_EFFECT_PARAMS:
+            initial_mode = "feedback"
+
+        self.mode_combo = QComboBox()
+        for mode in TRIGGER_EFFECT_ORDER:
+            self.mode_combo.addItem(t(f"trig_mode_{mode}"), mode)
+        idx = self.mode_combo.findData(initial_mode)
+        if idx != -1:
+            self.mode_combo.setCurrentIndex(idx)
+        self.mode_combo.currentIndexChanged.connect(lambda _=0: self._rebuild_sliders())
+        layout.addWidget(self.mode_combo)
+
+        self.sliders_layout = QVBoxLayout()
+        layout.addLayout(self.sliders_layout)
+
+        apply_btn = QPushButton(t("btn_apply"))
+        apply_btn.setObjectName("primary")
+        apply_btn.clicked.connect(self._apply)
+        layout.addWidget(apply_btn)
+
+        initial_values = saved.get("values") if saved.get("mode") == initial_mode else None
+        self._rebuild_sliders(initial_values)
+
+    def _rebuild_sliders(self, initial_values=None):
+        while self.sliders_layout.count():
+            item = self.sliders_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.hide()
+                w.deleteLater()
+        self.slider_widgets = []
+        mode = self.mode_combo.currentData()
+        for key, lo, hi, default in TRIGGER_EFFECT_PARAMS.get(mode, []):
+            value = default
+            if initial_values and key in initial_values:
+                value = max(lo, min(hi, initial_values[key]))
+            s = IntSlider(t(f"trig_param_{key}"), lo, hi, value)
+            self.sliders_layout.addWidget(s)
+            self.slider_widgets.append((key, s))
+
+    def _apply(self):
+        mode = self.mode_combo.currentData()
+        if mode == "off":
+            self.on_off(self.side)
+            return
+        values = {key: s.value() for key, s in self.slider_widgets}
+        self.on_apply(mode, values, self.side)
+
+    def refresh(self, active_ref):
+        self.setObjectName("cardActive" if active_ref == "custom" else "card")
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+
 class TriggerColumn(QWidget):
     """One trigger's (L2 or R2) preset list: independent from the other side."""
 
-    def __init__(self, state, side, side_title, on_apply, on_off):
+    def __init__(self, state, side, side_title, on_apply, on_off, on_apply_custom):
         super().__init__()
         self.state = state
         self.side = side
@@ -830,6 +953,9 @@ class TriggerColumn(QWidget):
             layout.addWidget(card)
             self.cards[pid] = card
 
+        self.custom_card = CustomTriggerCard(state, side, on_apply_custom, on_off)
+        layout.addWidget(self.custom_card)
+
         layout.addStretch(1)
         self.refresh()
 
@@ -839,10 +965,11 @@ class TriggerColumn(QWidget):
             card.setObjectName("cardActive" if active == pid else "card")
             card.style().unpolish(card)
             card.style().polish(card)
+        self.custom_card.refresh(active)
 
 
 class TriggersPage(QWidget):
-    def __init__(self, state, on_apply, on_off):
+    def __init__(self, state, on_apply, on_off, on_apply_custom):
         super().__init__()
         self.state = state
 
@@ -861,8 +988,8 @@ class TriggersPage(QWidget):
         scroll.setFrameShape(QFrame.NoFrame)
         columns_widget = QWidget()
         columns = QHBoxLayout(columns_widget)
-        self.left_column = TriggerColumn(state, "left", t("trigger_left_title"), on_apply, on_off)
-        self.right_column = TriggerColumn(state, "right", t("trigger_right_title"), on_apply, on_off)
+        self.left_column = TriggerColumn(state, "left", t("trigger_left_title"), on_apply, on_off, on_apply_custom)
+        self.right_column = TriggerColumn(state, "right", t("trigger_right_title"), on_apply, on_off, on_apply_custom)
         columns.addWidget(self.left_column)
         columns.addWidget(self.right_column)
         scroll.setWidget(columns_widget)
@@ -1128,7 +1255,8 @@ class MainWindow(QWidget):
         self.home_page = HomePage(self.state, self.engine_holder, self._toggle)
         self.presets_page = PresetsPage(self.state, self._apply_preset)
         self.profiles_page = ProfilesPage(self.state, self._apply_profile, self._on_state_changed)
-        self.triggers_page = TriggersPage(self.state, self._apply_trigger_preset, self._turn_off_triggers)
+        self.triggers_page = TriggersPage(
+            self.state, self._apply_trigger_preset, self._turn_off_triggers, self._apply_custom_trigger)
         self.button_haptic_page = ButtonHapticPage(self.state, self.save_cb)
         self.advanced_page = AdvancedPage(self.state, self._on_advanced_change)
         self.settings_page = SettingsPage(self.state, self._on_theme_pref_change, self._on_language_pref_change)
@@ -1192,6 +1320,15 @@ class MainWindow(QWidget):
         else:
             QMessageBox.warning(self, t("trigger_off_fail_title"), err)
 
+    def _apply_custom_trigger(self, mode, values, side, silent=False):
+        ok, err = triggers.apply_custom_trigger(mode, values, side)
+        if ok:
+            self.state[f"trigger_preset_{side}"] = "custom"
+            self.state[f"trigger_custom_{side}"] = {"mode": mode, "values": values}
+            self._on_state_changed()
+        elif not silent:
+            QMessageBox.warning(self, t("trigger_apply_fail_title"), err)
+
     def reapply_triggers_on_reconnect(self):
         """Called when the controller transitions to "connected". Re-sends the
         last chosen trigger presets unless another process already has the
@@ -1204,10 +1341,18 @@ class MainWindow(QWidget):
             return
         if triggers.is_controller_owned_elsewhere():
             return
-        if left:
-            self._apply_trigger_preset(left, "left", silent=True)
-        if right:
-            self._apply_trigger_preset(right, "right", silent=True)
+        self._reapply_side(left, "left")
+        self._reapply_side(right, "right")
+
+    def _reapply_side(self, preset_id, side):
+        if not preset_id:
+            return
+        if preset_id == "custom":
+            custom = self.state.get(f"trigger_custom_{side}")
+            if custom:
+                self._apply_custom_trigger(custom["mode"], custom["values"], side, silent=True)
+        else:
+            self._apply_trigger_preset(preset_id, side, silent=True)
 
     def _on_advanced_change(self):
         self.state["active_ref"] = "custom"

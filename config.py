@@ -32,6 +32,8 @@ def _default_state():
         "profiles": {},
         "trigger_preset_left": None,
         "trigger_preset_right": None,
+        "trigger_custom_left": None,
+        "trigger_custom_right": None,
         "trigger_auto_reconnect": True,
         "theme": "system",
         "language": detect_system_language(),
@@ -78,6 +80,8 @@ def load_state():
     else:
         state["trigger_preset_left"] = raw.get("trigger_preset_left")
         state["trigger_preset_right"] = raw.get("trigger_preset_right")
+    state["trigger_custom_left"] = raw.get("trigger_custom_left")
+    state["trigger_custom_right"] = raw.get("trigger_custom_right")
     state["trigger_auto_reconnect"] = raw.get("trigger_auto_reconnect", True)
     state["theme"] = raw.get("theme", "system")
     state["language"] = raw.get("language", detect_system_language())

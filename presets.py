@@ -86,3 +86,49 @@ TRIGGER_PRESETS = {
 }
 
 TRIGGER_PRESET_ORDER = ["soft", "hard_wall", "weapon", "bow", "machine", "clicker", "gallop"]
+
+# Custom trigger effect builder: raw dualsensectl parameters per effect
+# mode, as (key, lo, hi, default). Ranges are copied from dualsensectl's own
+# validation (main.c command_trigger_*), not guessed - e.g. "end"-style
+# params there must exceed their paired "start", which the UI doesn't
+# enforce live but triggers.build_custom_args() auto-corrects on apply.
+TRIGGER_EFFECT_ORDER = ["off", "feedback", "weapon", "bow", "machine", "galloping", "vibration"]
+
+TRIGGER_EFFECT_PARAMS = {
+    "off": [],
+    "feedback": [
+        ("position", 0, 9, 2),
+        ("strength", 1, 8, 3),
+    ],
+    "weapon": [
+        ("start", 2, 7, 3),
+        ("end", 3, 8, 6),
+        ("strength", 1, 8, 6),
+    ],
+    "bow": [
+        ("start", 1, 8, 2),
+        ("end", 2, 8, 7),
+        ("strength", 1, 8, 6),
+        ("snap", 1, 8, 8),
+    ],
+    "machine": [
+        ("start", 1, 8, 2),
+        ("end", 2, 9, 8),
+        ("strength_a", 0, 7, 1),
+        ("strength_b", 0, 7, 7),
+        ("frequency", 1, 15, 4),
+        ("period", 0, 15, 2),
+    ],
+    "galloping": [
+        ("start", 0, 8, 1),
+        ("end", 1, 9, 8),
+        ("first_foot", 0, 6, 3),
+        ("second_foot", 1, 7, 5),
+        ("frequency", 1, 15, 5),
+    ],
+    "vibration": [
+        ("position", 0, 9, 1),
+        ("amplitude", 1, 8, 6),
+        ("frequency", 1, 15, 3),
+    ],
+}
