@@ -1,0 +1,28 @@
+# Maintainer: local build, not published
+pkgname=dualsense-haptics
+pkgver=1.2.0
+pkgrel=4
+pkgdesc="Audio-to-haptics daemon and GUI for the DualSense controller over Bluetooth"
+arch=('any')
+# dualsensectl is AUR-only (github.com/nowrep/dualsensectl); pacman -U only
+# checks that it's already installed, it won't fetch it for you - install it
+# via an AUR helper first (e.g. `paru -S dualsensectl`).
+depends=('python' 'pyside6' 'python-evdev' 'libpulse' 'dualsensectl')
+license=('MIT')
+source=()
+sha256sums=()
+
+package() {
+  local appdir="$pkgdir/usr/share/dualsense-haptics"
+  install -dm755 "$appdir"
+  install -m644 "$startdir"/../*.py "$appdir/"
+
+  install -dm755 "$appdir/assets"
+  if [ -d "$startdir/../assets" ]; then
+    cp -a "$startdir"/../assets/. "$appdir/assets/"
+  fi
+
+  install -Dm755 "$startdir/dualsense-haptics.sh" "$pkgdir/usr/bin/dualsense-haptics"
+  install -Dm644 "$startdir/dualsense-haptics.desktop" "$pkgdir/usr/share/applications/dualsense-haptics.desktop"
+  install -Dm644 "$startdir/../LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

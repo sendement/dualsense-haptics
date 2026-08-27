@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=DualSense Haptics
+Comment=Audio-to-haptics for the DualSense controller over Bluetooth
+Exec=dualsense-haptics
+Icon=input-gaming
+Categories=Utility;Settings;
+Terminal=false
