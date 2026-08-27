@@ -77,7 +77,7 @@ Bluetooth.
 A `PKGBUILD` is included under [`packaging/`](packaging/):
 
 ```sh
-git clone https://github.com/<your-username>/dualsense-haptics.git
+git clone https://github.com/sendement/dualsense-haptics.git
 cd dualsense-haptics/packaging
 makepkg -si
 ```
@@ -94,7 +94,7 @@ paru -S dualsensectl   # or: yay -S dualsensectl
 No distro packaging beyond the Arch one exists yet — run it from source:
 
 ```sh
-git clone https://github.com/<your-username>/dualsense-haptics.git
+git clone https://github.com/sendement/dualsense-haptics.git
 cd dualsense-haptics
 
 # Debian/Ubuntu-style dependency names, adjust for your distro:
