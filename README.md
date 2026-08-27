@@ -3,7 +3,7 @@
 Audio-reactive haptics and adaptive triggers for the Sony DualSense controller
 on Linux, over Bluetooth **or** USB.
 
-Windows has [DSX](https://github.com/Dualsenseify/DSX), which turns your
+Windows has [DualSenseX](https://github.com/Paliverse/DualSenseX), which turns your
 system audio into rumble on the DualSense's motors. There's no DSX for Linux
 — this is that, built from scratch on top of the kernel's own force-feedback
 API, with a full GUI on top: presets, per-user profiles, adaptive trigger
