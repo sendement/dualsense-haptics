@@ -553,16 +553,15 @@ class HapticsEngine(threading.Thread):
     def _session_bt_proxy(self, dev):
         """Bluetooth only: clones the controller via /dev/uhid, hides the real
         device from everyone else (Steam included), relays its input/feature
-        reports transparently, and merges our own audio-reactive rumble into
-        whatever Steam separately writes for triggers/lightbar - see
-        bt_hid_proxy.py. Structurally a copy of _session_ff (same parec spawn,
-        same bass/treble/button DSP), swapping the FF_RUMBLE write for the
-        proxy's relay+merge each tick. Falls back through _session_fallback
-        (BT direct-audio/SAxense if the user has that enabled too, else
-        plain FF_RUMBLE) for this connection if the proxy can't be set up
-        (missing helper/udev rule, /dev/uhid inaccessible), with a 30s
-        cooldown before retrying so a persistently broken install doesn't
-        respawn the helper every 2s reconnect poll."""
+        reports transparently, and keeps Steam's cached trigger/lightbar
+        writes flowing to the real hardware while our own audio-reactive
+        haptics run alongside instead of racing it for the wire - see
+        bt_hid_proxy.py. Falls back through _session_fallback (BT direct-
+        audio/SAxense if the user has that enabled too, else plain
+        FF_RUMBLE) for this connection if the proxy can't be set up (missing
+        helper/udev rule, /dev/uhid inaccessible), with a 30s cooldown before
+        retrying so a persistently broken install doesn't respawn the helper
+        every 2s reconnect poll."""
         session = bt_hid_proxy.BtHidProxySession()
         try:
             session.open()
@@ -572,6 +571,27 @@ class HapticsEngine(threading.Thread):
             self._session_fallback(dev, "bluetooth")
             return
 
+        try:
+            direct_cfg = self.config.get("direct_audio", {})
+            clone_hidraw = None
+            if direct_cfg.get("enabled", True) and direct_cfg.get("bt_enabled", False) and shutil.which("SAxense"):
+                clone_hidraw = bt_hid_proxy.find_clone_hidraw_path()
+            if clone_hidraw:
+                self._run_bt_proxy_saxense(session, dev, clone_hidraw)
+            else:
+                self._run_bt_proxy_envelope(session, dev)
+        finally:
+            while True:
+                try:
+                    session.close()
+                    break
+                except KeyboardInterrupt:
+                    continue
+
+    def _run_bt_proxy_envelope(self, session, dev):
+        """Synthesized-envelope rumble through the proxy - structurally a
+        copy of _session_ff (same parec spawn, same bass/treble/button DSP),
+        swapping the FF_RUMBLE write for the proxy's relay+merge each tick."""
         proc = subprocess.Popen(
             ["parec", "-d", "@DEFAULT_SINK@.monitor", "--format=s16le",
              f"--rate={RATE}", f"--channels={CHANNELS}", "--raw", "--latency-msec=20"],
@@ -671,12 +691,129 @@ class HapticsEngine(threading.Thread):
         finally:
             proc.terminate()
             proc.wait()
-            while True:
-                try:
-                    session.close()
-                    break
-                except KeyboardInterrupt:
-                    continue
+
+    def _run_bt_proxy_saxense(self, session, dev, clone_hidraw):
+        """Literal-PCM rumble through the proxy, same technique as
+        _session_bt_direct_audio (see there for the DSP/protocol rationale),
+        but pointed at the clone's hidraw instead of the real device's:
+        SAxense writes a distinct HID report (id 0x32, 141 bytes - see
+        SAxense.c) that never overlaps with the 0x31 report triggers/
+        lightbar/rumble live on, so BtHidProxySession's relay passes it
+        straight through to real hardware untouched once it arrives via the
+        clone. Steam's cached trigger effect is kept alive separately via
+        forward_cached_report(), since write_rumble()'s own motor-byte
+        override doesn't apply here - SAxense owns the motors instead."""
+        rate = BT_RATE
+        chunk_samples = BT_CHUNK_SAMPLES
+        stereo_bytes = chunk_samples * 2 * 2
+        stereo_fmt = f"<{chunk_samples * 2}h"
+        phase_step = 2 * math.pi * BT_BUTTON_CLICK_HZ / rate
+
+        hidraw_file = open(clone_hidraw, "wb", buffering=0)
+        parec = subprocess.Popen(
+            ["parec", "-d", "@DEFAULT_SINK@.monitor", "--format=s16le",
+             f"--rate={rate}", "--channels=2", "--raw", "--latency-msec=20"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        )
+        saxense = subprocess.Popen(
+            ["SAxense"], stdin=subprocess.PIPE, stdout=hidraw_file, stderr=subprocess.DEVNULL,
+        )
+
+        button_strong_env = button_weak_env = 0.0
+        held_keys = {}
+        hat_x = hat_y = 0
+        phase = 0.0
+        last_status_emit = 0.0
+
+        try:
+            while not self._stop_event.is_set() and self.config.get("bt_hid_proxy", {}).get("enabled", False):
+                readable, _, _ = select.select(
+                    [session.real_fd, session.uhid_fd, parec.stdout], [], [], 0.02)
+
+                if parec.stdout in readable:
+                    data = parec.stdout.read(stereo_bytes)
+                    if len(data) < stereo_bytes:
+                        if parec.poll() is not None:
+                            raise RuntimeError("audio capture (parec) exited")
+                    else:
+                        if saxense.poll() is not None:
+                            raise RuntimeError("SAxense exited")
+
+                        cfg = self.config
+                        gain = cfg.get("direct_audio", {}).get("gain", 5.0)
+
+                        while True:
+                            ev = dev.read_one()
+                            if ev is None:
+                                break
+                            if ev.type == ecodes.EV_KEY:
+                                held_keys[ev.code] = ev.value != 0
+                            elif ev.type == ecodes.EV_ABS and ev.code in (ecodes.ABS_HAT0X, ecodes.ABS_HAT0Y):
+                                if ev.code == ecodes.ABS_HAT0X:
+                                    hat_x = ev.value
+                                else:
+                                    hat_y = ev.value
+                                held_keys[DPAD_VIRTUAL_CODE] = hat_x != 0 or hat_y != 0
+
+                        samples = struct.unpack(stereo_fmt, data)
+                        left_in = samples[0::2]
+                        right_in = samples[1::2]
+
+                        button_strong_target = 0.0
+                        button_weak_target = 0.0
+                        for code_str, entry in cfg["button_haptics"].items():
+                            if not entry.get("enabled") or not held_keys.get(int(code_str), False):
+                                continue
+                            side = BUTTON_SIDE.get(int(code_str), "weak")
+                            strength = entry.get("strength", 0.4)
+                            if side == "strong":
+                                button_strong_target = max(button_strong_target, strength)
+                            else:
+                                button_weak_target = max(button_weak_target, strength)
+                        button_strong_env += (button_strong_target - button_strong_env) * (
+                            BUTTON_ATTACK if button_strong_target > button_strong_env else BUTTON_RELEASE)
+                        button_weak_env += (button_weak_target - button_weak_env) * (
+                            BUTTON_ATTACK if button_weak_target > button_weak_env else BUTTON_RELEASE)
+
+                        out = bytearray(chunk_samples * 2)
+                        peak_left = peak_right = 0.0
+                        for i in range(chunk_samples):
+                            l = (left_in[i] / 32768.0) * gain
+                            r = (right_in[i] / 32768.0) * gain
+                            click = math.sin(phase)
+                            phase += phase_step
+                            if button_strong_env > 0.001:
+                                l += click * button_strong_env
+                            if button_weak_env > 0.001:
+                                r += click * button_weak_env
+                            l = math.tanh(l)
+                            r = math.tanh(r)
+                            peak_left = max(peak_left, abs(l))
+                            peak_right = max(peak_right, abs(r))
+                            out[i * 2] = int(l * 127) & 0xFF
+                            out[i * 2 + 1] = int(r * 127) & 0xFF
+                        phase = math.fmod(phase, 2 * math.pi)
+
+                        saxense.stdin.write(bytes(out))
+                        saxense.stdin.flush()
+                        session.forward_cached_report()
+                        self._emit_levels(peak_left, peak_right)
+
+                if session.real_fd in readable:
+                    session.relay_input()
+                if session.uhid_fd in readable:
+                    session.relay_output_or_get_report()
+
+                now = time.monotonic()
+                if now - last_status_emit > 1.5:
+                    last_status_emit = now
+                    self._emit_status("proxied")
+        finally:
+            saxense.terminate()
+            saxense.wait()
+            parec.terminate()
+            parec.wait()
+            hidraw_file.close()
 
     def _session_ff(self, dev):
         effect = ff.Effect(

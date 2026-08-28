@@ -20,6 +20,7 @@ import json
 import os
 import struct
 import subprocess
+import time
 from pathlib import Path
 
 RD = bytes.fromhex(
@@ -176,6 +177,29 @@ def real_device_nodes(sys_path):
         if base.startswith(("event", "js", "mouse")):
             nodes.append(f"/dev/input/{base}")
     return nodes
+
+
+def find_clone_hidraw_path(timeout=2.0):
+    """sysfs path for OUR OWN clone's hidraw node (tagged with
+    HID_PHYS=CLONE_PHYS), for pointing SAxense's literal-PCM output at the
+    clone instead of the real device - see BtHidProxySession.open()'s
+    caller. hid-playstation binds and creates the hidraw node asynchronously
+    after UHID_CREATE2, so this polls briefly rather than assuming it exists
+    immediately."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        for sys_path in glob.glob("/sys/bus/hid/devices/0005:054C:0CE6.*") + \
+                glob.glob("/sys/bus/hid/devices/0005:054c:0ce6.*"):
+            uevent_path = os.path.join(sys_path, "uevent")
+            if not os.path.exists(uevent_path):
+                continue
+            if CLONE_PHYS not in open(uevent_path).read():
+                continue
+            matches = glob.glob(os.path.join(sys_path, "hidraw", "hidraw*"))
+            if matches:
+                return f"/dev/{os.path.basename(matches[0])}"
+        time.sleep(0.05)
+    return None
 
 
 # --- privilege backends ---------------------------------------------------
@@ -439,15 +463,32 @@ class BtHidProxySession:
         merged = bytearray(report)
         incoming_flag0 = report[3]
         cached_flag0 = self.last_steam_report[3]
+        spliced = False
         for flag, field in ((RIGHT_TRIGGER_FLAG, RIGHT_TRIGGER_FIELD), (LEFT_TRIGGER_FLAG, LEFT_TRIGGER_FIELD)):
             if not (incoming_flag0 & flag) and (cached_flag0 & flag):
                 merged[field] = self.last_steam_report[field]
                 merged[3] |= flag
+                spliced = True
+        if spliced:
+            # Splicing fields from a different write invalidates the
+            # incoming report's own trailing CRC (computed over its
+            # original bytes) - recompute so the cache always holds a
+            # self-consistent report, for callers besides write_rumble()
+            # (which recomputes its own CRC anyway) that forward it as-is.
+            body = bytes(merged[:-4])
+            merged[-4:] = sony_crc32(OUTPUT_CRC_SEED, body).to_bytes(4, "little")
         return merged
 
     def write_rumble(self, strong_mag, weak_mag):
         merged = merge_rumble(self.last_steam_report, strong_mag, weak_mag)
         os.write(self.real_fd, merged)
+
+    def forward_cached_report(self):
+        """Relays the cached (trigger-preserving) state to the real device
+        as-is, without overriding the rumble-motor bytes - used when
+        something else (SAxense's own, separate HID report) is driving the
+        motors instead of write_rumble()'s envelope-based merge."""
+        os.write(self.real_fd, bytes(self.last_steam_report))
 
     def _teardown_fds(self):
         if self.uhid_fd is not None:
