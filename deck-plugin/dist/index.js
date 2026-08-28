@@ -92,6 +92,8 @@ const STRINGS = {
         "status_searching": "Searching for controller…",
         "status_connected": "Connected",
         "status_overridden": "Overridden by Steam",
+        "status_proxied": "Mixing with Steam (proxy active)",
+        "status_bt_proxy_unavailable": "Trigger+vibration mix unavailable",
         "battery_unknown": "—",
         "btn_apply": "Apply",
         "triggers_title": "Adaptive Triggers",
@@ -99,6 +101,9 @@ const STRINGS = {
         "trigger_right_title": "Right Trigger (R2)",
         "direct_audio_checkbox": "Play audio straight through the motors",
         "direct_audio_bt_checkbox": "Enable over Bluetooth (experimental)",
+        "group_bt_proxy": "Trigger + Vibration Mix (Bluetooth, experimental)",
+        "bt_proxy_hint": "Fixes Steam silently swallowing vibration in games with native adaptive-trigger support: clones the controller and merges Steam's trigger/lightbar writes with this app's own audio-reactive rumble, instead of the two fighting over the same device.",
+        "bt_proxy_checkbox": "Enable trigger + vibration mix (experimental)",
         "label_direct_gain": "Strength",
         "group_language": "Language",
         "trigger_custom_title": "Custom Effect",
@@ -148,6 +153,8 @@ const STRINGS = {
         "status_searching": "Поиск контроллера...",
         "status_connected": "Подключено",
         "status_overridden": "Перехвачено Steam",
+        "status_proxied": "Микс со Steam (прокси активен)",
+        "status_bt_proxy_unavailable": "Микс триггеров+вибрации недоступен",
         "battery_unknown": "—",
         "btn_apply": "Применить",
         "triggers_title": "Адаптивные триггеры",
@@ -155,6 +162,9 @@ const STRINGS = {
         "trigger_right_title": "Правый триггер (R2)",
         "direct_audio_checkbox": "Играть звук напрямую через моторы",
         "direct_audio_bt_checkbox": "Включить по Bluetooth (экспериментально)",
+        "group_bt_proxy": "Микс триггеров и вибрации (Bluetooth, экспериментально)",
+        "bt_proxy_hint": "Решает проблему, когда Steam незаметно глушит вибрацию в играх с поддержкой адаптивных триггеров: клонирует контроллер и смешивает записи Steam (триггеры/подсветку) с собственной аудио-реактивной вибрацией приложения, вместо того чтобы они боролись за одно устройство.",
+        "bt_proxy_checkbox": "Включить микс триггеров и вибрации (экспериментально)",
         "label_direct_gain": "Сила",
         "group_language": "Язык",
         "trigger_custom_title": "Свой эффект",
@@ -204,6 +214,8 @@ const STRINGS = {
         "status_searching": "正在搜索控制器…",
         "status_connected": "已连接",
         "status_overridden": "已被 Steam 接管",
+        "status_proxied": "正在与 Steam 混合（代理已激活）",
+        "status_bt_proxy_unavailable": "扳机+震动混合不可用",
         "battery_unknown": "—",
         "btn_apply": "应用",
         "triggers_title": "自适应扳机",
@@ -211,6 +223,9 @@ const STRINGS = {
         "trigger_right_title": "右扳机 (R2)",
         "direct_audio_checkbox": "直接通过马达播放音频",
         "direct_audio_bt_checkbox": "通过蓝牙启用（实验性）",
+        "group_bt_proxy": "扳机+震动混合（蓝牙，实验性）",
+        "bt_proxy_hint": "解决 Steam 在支持原生自适应扳机的游戏中悄悄吞掉震动的问题：克隆手柄，并将 Steam 写入的扳机/灯效数据与本应用自身的音频反应震动合并，而不是两者争抢同一设备。",
+        "bt_proxy_checkbox": "启用扳机+震动混合（实验性）",
         "label_direct_gain": "强度",
         "group_language": "语言",
         "trigger_custom_title": "自定义效果",
@@ -260,6 +275,8 @@ const STRINGS = {
         "status_searching": "Buscando mando…",
         "status_connected": "Conectado",
         "status_overridden": "Anulado por Steam",
+        "status_proxied": "Mezclando con Steam (proxy activo)",
+        "status_bt_proxy_unavailable": "Mezcla de gatillo+vibración no disponible",
         "battery_unknown": "—",
         "btn_apply": "Aplicar",
         "triggers_title": "Gatillos adaptativos",
@@ -267,6 +284,9 @@ const STRINGS = {
         "trigger_right_title": "Gatillo derecho (R2)",
         "direct_audio_checkbox": "Reproducir audio directamente en los motores",
         "direct_audio_bt_checkbox": "Activar por Bluetooth (experimental)",
+        "group_bt_proxy": "Mezcla de gatillo y vibración (Bluetooth, experimental)",
+        "bt_proxy_hint": "Soluciona que Steam silencie la vibración en juegos con soporte nativo de gatillos adaptativos: clona el mando y combina lo que Steam escribe (gatillos/luz) con la vibración propia de la app basada en el audio, en lugar de que ambos compitan por el mismo dispositivo.",
+        "bt_proxy_checkbox": "Activar mezcla de gatillo + vibración (experimental)",
         "label_direct_gain": "Intensidad",
         "group_language": "Idioma",
         "trigger_custom_title": "Efecto personalizado",
@@ -316,6 +336,8 @@ const STRINGS = {
         "status_searching": "Suche nach Controller…",
         "status_connected": "Verbunden",
         "status_overridden": "Von Steam übersteuert",
+        "status_proxied": "Mischung mit Steam (Proxy aktiv)",
+        "status_bt_proxy_unavailable": "Trigger+Vibrations-Mix nicht verfügbar",
         "battery_unknown": "—",
         "btn_apply": "Anwenden",
         "triggers_title": "Adaptive Trigger",
@@ -323,6 +345,9 @@ const STRINGS = {
         "trigger_right_title": "Rechter Trigger (R2)",
         "direct_audio_checkbox": "Audio direkt über die Motoren abspielen",
         "direct_audio_bt_checkbox": "Über Bluetooth aktivieren (experimentell)",
+        "group_bt_proxy": "Trigger- und Vibrations-Mix (Bluetooth, experimentell)",
+        "bt_proxy_hint": "Behebt, dass Steam die Vibration in Spielen mit nativer Unterstützung für adaptive Trigger stillschweigend verschluckt: klont den Controller und mischt Steams Trigger-/Lightbar-Schreibvorgänge mit der eigenen audioreaktiven Vibration der App, statt dass beide um dasselbe Gerät konkurrieren.",
+        "bt_proxy_checkbox": "Trigger- + Vibrations-Mix aktivieren (experimentell)",
         "label_direct_gain": "Stärke",
         "group_language": "Sprache",
         "trigger_custom_title": "Eigener Effekt",
@@ -372,6 +397,8 @@ const STRINGS = {
         "status_searching": "Recherche de la manette…",
         "status_connected": "Connectée",
         "status_overridden": "Remplacé par Steam",
+        "status_proxied": "Mixage avec Steam (proxy actif)",
+        "status_bt_proxy_unavailable": "Mixage gâchette+vibration indisponible",
         "battery_unknown": "—",
         "btn_apply": "Appliquer",
         "triggers_title": "Gâchettes adaptatives",
@@ -379,6 +406,9 @@ const STRINGS = {
         "trigger_right_title": "Gâchette droite (R2)",
         "direct_audio_checkbox": "Jouer l'audio directement sur les moteurs",
         "direct_audio_bt_checkbox": "Activer par Bluetooth (expérimental)",
+        "group_bt_proxy": "Mixage gâchette et vibration (Bluetooth, expérimental)",
+        "bt_proxy_hint": "Corrige le fait que Steam avale silencieusement la vibration dans les jeux avec prise en charge native des gâchettes adaptatives : clone la manette et mélange ce que Steam écrit (gâchettes/rétroéclairage) avec la vibration réactive à l'audio de l'application, au lieu que les deux se disputent le même périphérique.",
+        "bt_proxy_checkbox": "Activer le mixage gâchette + vibration (expérimental)",
         "label_direct_gain": "Intensité",
         "group_language": "Langue",
         "trigger_custom_title": "Effet personnalisé",
@@ -428,6 +458,8 @@ const STRINGS = {
         "status_searching": "コントローラーを検索中…",
         "status_connected": "接続済み",
         "status_overridden": "Steamに上書きされています",
+        "status_proxied": "Steamとミックス中（プロキシ有効）",
+        "status_bt_proxy_unavailable": "トリガー+振動ミックスが利用できません",
         "battery_unknown": "—",
         "btn_apply": "適用",
         "triggers_title": "アダプティブトリガー",
@@ -435,6 +467,9 @@ const STRINGS = {
         "trigger_right_title": "右トリガー (R2)",
         "direct_audio_checkbox": "音声をモーターに直接再生する",
         "direct_audio_bt_checkbox": "Bluetoothで有効にする（実験的機能）",
+        "group_bt_proxy": "トリガー+振動ミックス（Bluetooth、実験的機能）",
+        "bt_proxy_hint": "ネイティブのアダプティブトリガー対応ゲームでSteamが振動を静かに無効化してしまう問題を解決します。コントローラーを複製し、Steamが書き込むトリガー/ライトバーの内容と本アプリ自身のオーディオ反応振動を統合します（同じデバイスを奪い合う代わりに）。",
+        "bt_proxy_checkbox": "トリガー+振動ミックスを有効にする（実験的機能）",
         "label_direct_gain": "強さ",
         "group_language": "言語",
         "trigger_custom_title": "カスタム効果",
@@ -484,6 +519,8 @@ const STRINGS = {
         "status_searching": "Procurando controle…",
         "status_connected": "Conectado",
         "status_overridden": "Sobreposto pelo Steam",
+        "status_proxied": "Combinando com o Steam (proxy ativo)",
+        "status_bt_proxy_unavailable": "Mix de gatilho+vibração indisponível",
         "battery_unknown": "—",
         "btn_apply": "Aplicar",
         "triggers_title": "Gatilhos adaptativos",
@@ -491,6 +528,9 @@ const STRINGS = {
         "trigger_right_title": "Gatilho direito (R2)",
         "direct_audio_checkbox": "Reproduzir áudio diretamente nos motores",
         "direct_audio_bt_checkbox": "Ativar via Bluetooth (experimental)",
+        "group_bt_proxy": "Mix de gatilho e vibração (Bluetooth, experimental)",
+        "bt_proxy_hint": "Corrige o Steam silenciosamente engolindo a vibração em jogos com suporte nativo a gatilhos adaptativos: clona o controle e combina o que o Steam escreve (gatilhos/luz) com a vibração reativa ao áudio do próprio app, em vez de os dois disputarem o mesmo dispositivo.",
+        "bt_proxy_checkbox": "Ativar mix de gatilho + vibração (experimental)",
         "label_direct_gain": "Intensidade",
         "group_language": "Idioma",
         "trigger_custom_title": "Efeito personalizado",
@@ -540,6 +580,8 @@ const STRINGS = {
         "status_searching": "컨트롤러 검색 중…",
         "status_connected": "연결됨",
         "status_overridden": "Steam이 가로챔",
+        "status_proxied": "Steam과 믹싱 중 (프록시 활성)",
+        "status_bt_proxy_unavailable": "트리거+진동 믹스 사용 불가",
         "battery_unknown": "—",
         "btn_apply": "적용",
         "triggers_title": "어댑티브 트리거",
@@ -547,6 +589,9 @@ const STRINGS = {
         "trigger_right_title": "오른쪽 트리거 (R2)",
         "direct_audio_checkbox": "오디오를 모터로 직접 재생",
         "direct_audio_bt_checkbox": "블루투스로 활성화 (실험적)",
+        "group_bt_proxy": "트리거+진동 믹스 (블루투스, 실험적)",
+        "bt_proxy_hint": "네이티브 어댑티브 트리거를 지원하는 게임에서 Steam이 진동을 조용히 삼켜버리는 문제를 해결합니다. 컨트롤러를 복제하여 Steam이 기록하는 트리거/조명 데이터를 앱 자체의 오디오 반응 진동과 병합합니다 (같은 장치를 두고 경쟁하는 대신).",
+        "bt_proxy_checkbox": "트리거 + 진동 믹스 활성화 (실험적)",
         "label_direct_gain": "강도",
         "group_language": "언어",
         "trigger_custom_title": "커스텀 효과",
@@ -617,6 +662,8 @@ const applyCustomTrigger = callable("apply_custom_trigger");
 const getDirectAudio = callable("get_direct_audio");
 const setDirectAudioEnabled = callable("set_direct_audio_enabled");
 const setDirectAudioBtEnabled = callable("set_direct_audio_bt_enabled");
+const getBtHidProxy = callable("get_bt_hid_proxy");
+const setBtHidProxyEnabled = callable("set_bt_hid_proxy_enabled");
 const getLanguage = callable("get_language");
 const setLanguage = callable("set_language");
 const PRESET_LABEL_KEYS = {
@@ -752,7 +799,9 @@ function MainSection({ t }) {
     const statusLabel = status === "connected" ? t("status_connected")
         : status === "searching" ? t("status_searching")
             : status === "overridden" ? t("status_overridden")
-                : status ?? "—";
+                : status === "proxied" ? t("status_proxied")
+                    : status === "bt_proxy_unavailable" ? t("status_bt_proxy_unavailable")
+                        : status ?? "—";
     return (SP_JSX.jsxs(DFL.PanelSection, { title: "DualSense Haptics", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: t("home_vibration"), checked: enabled, onChange: onToggle }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: { display: "flex", justifyContent: "space-between", fontSize: "0.85em", opacity: 0.75 }, children: [SP_JSX.jsxs("span", { children: [statusLabel, " \u00B7 ", connectionLabel] }), SP_JSX.jsx("span", { children: battery !== null ? `${battery}%` : "" })] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.DropdownItem, { label: t("preset_label"), rgOptions: presetList.map((p) => ({ data: p, label: t(PRESET_LABEL_KEYS[p] ?? p) })), selectedOption: activePreset, onChange: onPresetChange }) }), profileList.length > 0 && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.DropdownItem, { label: t("profile_label"), rgOptions: profileList.map((p) => ({ data: p, label: p })), selectedOption: activeProfile, onChange: onProfileChange }) })), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t("label_direct_gain"), value: gain, min: 0.2, max: 2.5, step: 0.05, notchTicksVisible: false, onChange: onGainChange }) })] }));
 }
 function TriggerPresetRow({ side, label, t }) {
@@ -835,6 +884,17 @@ function DirectAudioSection({ t }) {
     };
     return (SP_JSX.jsxs(DFL.PanelSection, { title: t("direct_audio_title"), children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: `USB — ${t("direct_audio_checkbox")}`, checked: directAudio.enabled, onChange: onUsbToggle }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: t("direct_audio_bt_checkbox"), checked: directAudio.bt_enabled, onChange: onBtToggle }) })] }));
 }
+function BtHidProxySection({ t }) {
+    const [proxy, setProxyState] = SP_REACT.useState({ enabled: false });
+    SP_REACT.useEffect(() => {
+        (async () => setProxyState(await getBtHidProxy()))();
+    }, []);
+    const onToggle = async (value) => {
+        setProxyState((p) => ({ ...p, enabled: value }));
+        await setBtHidProxyEnabled(value);
+    };
+    return (SP_JSX.jsxs(DFL.PanelSection, { title: t("group_bt_proxy"), children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: t("bt_proxy_checkbox"), checked: proxy.enabled, onChange: onToggle }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("span", { style: { fontSize: "0.85em", opacity: 0.75 }, children: t("bt_proxy_hint") }) })] }));
+}
 function SettingsSection({ lang, onLangChange, t }) {
     return (SP_JSX.jsx(DFL.PanelSection, { title: t("group_language"), children: SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.DropdownItem, { label: t("group_language"), rgOptions: LANGUAGES.map(([code, name]) => ({ data: code, label: name })), selectedOption: lang, onChange: (option) => onLangChange(option.data) }) }) }));
 }
@@ -848,7 +908,7 @@ function Root() {
         setLang(code);
         await setLanguage(code);
     };
-    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(MainSection, { t: t$1 }), SP_JSX.jsx(TriggersSection, { t: t$1 }), SP_JSX.jsx(CustomTriggerCard, { side: "left", label: t$1("trigger_left_title"), t: t$1 }), SP_JSX.jsx(CustomTriggerCard, { side: "right", label: t$1("trigger_right_title"), t: t$1 }), SP_JSX.jsx(DirectAudioSection, { t: t$1 }), SP_JSX.jsx(SettingsSection, { lang: lang, onLangChange: onLangChange, t: t$1 })] }));
+    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(MainSection, { t: t$1 }), SP_JSX.jsx(TriggersSection, { t: t$1 }), SP_JSX.jsx(CustomTriggerCard, { side: "left", label: t$1("trigger_left_title"), t: t$1 }), SP_JSX.jsx(CustomTriggerCard, { side: "right", label: t$1("trigger_right_title"), t: t$1 }), SP_JSX.jsx(DirectAudioSection, { t: t$1 }), SP_JSX.jsx(BtHidProxySection, { t: t$1 }), SP_JSX.jsx(SettingsSection, { lang: lang, onLangChange: onLangChange, t: t$1 })] }));
 }
 var index = definePlugin(() => {
     return {

@@ -20,6 +20,17 @@ from presets import TRIGGER_PRESETS, TRIGGER_EFFECT_PARAMS, TRIGGER_RAW_CLI_NAME
 from haptics_engine import SONY_VENDOR_ID, DUALSENSE_PRODUCT_IDS
 
 
+def _dualsensectl_prefix():
+    """When a Bluetooth HID proxy session is active, the real device's hidraw
+    node is hidden (see bt_hid_proxy.py) and dualsensectl's own device
+    enumeration would otherwise pick it first and fail with a permission
+    error before ever trying the clone - so target the clone explicitly by
+    its fixed fake serial in that case."""
+    import bt_hid_proxy  # deferred: avoids a needless import when never used
+    uniq = bt_hid_proxy.is_proxy_active()
+    return ["-d", uniq] if uniq else []
+
+
 def find_hidraw_paths():
     """All /dev/hidrawN nodes belonging to a Sony DualSense (any transport)."""
     paths = []
@@ -72,7 +83,7 @@ def is_controller_owned_elsewhere():
 def apply_trigger_preset(preset_id, trigger="both"):
     if preset_id not in TRIGGER_PRESETS:
         return False, f"unknown preset {preset_id}"
-    args = ["dualsensectl", "trigger", trigger] + TRIGGER_PRESETS[preset_id]["args"]
+    args = ["dualsensectl"] + _dualsensectl_prefix() + ["trigger", trigger] + TRIGGER_PRESETS[preset_id]["args"]
     try:
         result = subprocess.run(args, capture_output=True, text=True, timeout=3)
     except (OSError, subprocess.TimeoutExpired) as e:
@@ -103,7 +114,9 @@ def build_custom_args(mode, values):
 def apply_custom_trigger(mode, values, trigger="both"):
     args = build_custom_args(mode, values)
     try:
-        result = subprocess.run(["dualsensectl", "trigger", trigger] + args, capture_output=True, text=True, timeout=3)
+        result = subprocess.run(
+            ["dualsensectl"] + _dualsensectl_prefix() + ["trigger", trigger] + args,
+            capture_output=True, text=True, timeout=3)
     except (OSError, subprocess.TimeoutExpired) as e:
         return False, str(e)
     if result.returncode != 0:
@@ -113,8 +126,9 @@ def apply_custom_trigger(mode, values, trigger="both"):
 
 def turn_off_triggers(trigger="both"):
     try:
-        result = subprocess.run(["dualsensectl", "trigger", trigger, "off"],
-                                 capture_output=True, text=True, timeout=3)
+        result = subprocess.run(
+            ["dualsensectl"] + _dualsensectl_prefix() + ["trigger", trigger, "off"],
+            capture_output=True, text=True, timeout=3)
     except (OSError, subprocess.TimeoutExpired) as e:
         return False, str(e)
     if result.returncode != 0:

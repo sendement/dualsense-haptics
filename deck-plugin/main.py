@@ -29,6 +29,15 @@ CONFIG_FILE = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "dualsense-haptics",
 
 sys.path.insert(0, PY_MODULES_DIR)
 import presets  # noqa: E402 - pure Python, no evdev dependency, safe here
+import bt_hid_proxy  # noqa: E402 - pure Python (no evdev dependency), safe here too
+
+
+def _dualsensectl_prefix():
+    """Mirrors triggers.py's own helper (not importable here - see module
+    docstring, triggers.py pulls in evdev via haptics_engine). Targets the
+    proxy clone explicitly once one is active - see bt_hid_proxy.py."""
+    uniq = bt_hid_proxy.is_proxy_active()
+    return ["-d", uniq] if uniq else []
 
 
 def _read_config():
@@ -66,6 +75,7 @@ def _build_custom_args(mode, values):
 class Plugin:
     async def _main(self):
         self.proc = None
+        bt_hid_proxy.recover_stale_lock()
         decky.logger.info("DualSense Haptics (Deck) loaded")
 
     async def _unload(self):
@@ -184,7 +194,7 @@ class Plugin:
     async def apply_trigger_preset(self, preset_id: str, side: str) -> bool:
         if preset_id not in presets.TRIGGER_PRESETS:
             return False
-        args = ["dualsensectl", "trigger", side] + presets.TRIGGER_PRESETS[preset_id]["args"]
+        args = ["dualsensectl"] + _dualsensectl_prefix() + ["trigger", side] + presets.TRIGGER_PRESETS[preset_id]["args"]
         try:
             result = subprocess.run(args, capture_output=True, text=True, timeout=3)
         except (OSError, subprocess.TimeoutExpired):
@@ -198,8 +208,9 @@ class Plugin:
 
     async def turn_off_trigger(self, side: str) -> bool:
         try:
-            result = subprocess.run(["dualsensectl", "trigger", side, "off"],
-                                     capture_output=True, text=True, timeout=3)
+            result = subprocess.run(
+                ["dualsensectl"] + _dualsensectl_prefix() + ["trigger", side, "off"],
+                capture_output=True, text=True, timeout=3)
         except (OSError, subprocess.TimeoutExpired):
             return False
         if result.returncode != 0:
@@ -226,6 +237,16 @@ class Plugin:
         _write_config(raw)
         return True
 
+    async def get_bt_hid_proxy(self) -> dict:
+        raw = _read_config() or {}
+        return raw.get("active", {}).get("bt_hid_proxy", {"enabled": False})
+
+    async def set_bt_hid_proxy_enabled(self, value: bool) -> bool:
+        raw = _read_config() or {}
+        raw.setdefault("active", {}).setdefault("bt_hid_proxy", {})["enabled"] = value
+        _write_config(raw)
+        return True
+
     async def get_custom_trigger(self, side: str):
         raw = _read_config() or {}
         return raw.get(f"trigger_custom_{side}")
@@ -233,8 +254,9 @@ class Plugin:
     async def apply_custom_trigger(self, mode: str, values: dict, side: str) -> bool:
         args = _build_custom_args(mode, values)
         try:
-            result = subprocess.run(["dualsensectl", "trigger", side] + args,
-                                     capture_output=True, text=True, timeout=3)
+            result = subprocess.run(
+                ["dualsensectl"] + _dualsensectl_prefix() + ["trigger", side] + args,
+                capture_output=True, text=True, timeout=3)
         except (OSError, subprocess.TimeoutExpired):
             return False
         if result.returncode != 0:

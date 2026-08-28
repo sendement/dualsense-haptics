@@ -13,6 +13,7 @@ import glob
 import math
 import queue
 import re
+import select
 import shutil
 import struct
 import subprocess
@@ -22,6 +23,8 @@ import time
 
 import evdev
 from evdev import ecodes, ff
+
+import bt_hid_proxy
 
 RATE = 8000
 CHANNELS = 2
@@ -62,6 +65,8 @@ DEFAULT_CONFIG = {
     # USB only - see find_dualsense_sink() and HapticsEngine._session_direct_audio.
     # bt_enabled is separate and opt-in (default off) - see BT_RATE above.
     "direct_audio": {"enabled": True, "gain": 5.0, "cutoff_hz": 500, "bt_enabled": False},
+    # Bluetooth only, opt-in - see bt_hid_proxy.py and HapticsEngine._session_bt_proxy.
+    "bt_hid_proxy": {"enabled": False},
 }
 
 BUTTON_ATTACK = 0.7
@@ -274,6 +279,21 @@ class HapticsEngine(threading.Thread):
         `SAxense` tool (see find_dualsense_hidraw()). Anything else falls
         back to the synthesized-envelope/FF_RUMBLE path."""
         kind = connection_kind(dev)
+        proxy_cfg = self.config.get("bt_hid_proxy", {})
+        now = time.monotonic()
+        if (kind == "bluetooth" and proxy_cfg.get("enabled", False)
+                and now >= getattr(self, "_bt_proxy_retry_after", 0.0)):
+            self._session_bt_proxy(dev)
+            return
+        self._session_fallback(dev, kind)
+
+    def _session_fallback(self, dev, kind):
+        """Everything except the Bluetooth HID proxy: USB/BT direct-audio if
+        applicable, else the synthesized-envelope/FF_RUMBLE path. Also used
+        by _session_bt_proxy when the proxy itself can't be set up, so a
+        failed proxy attempt degrades through the user's other preferences
+        (e.g. BT direct-audio/SAxense) instead of jumping straight to plain
+        FF_RUMBLE and silently ignoring them."""
         direct_cfg = self.config.get("direct_audio", {})
         if kind == "usb" and direct_cfg.get("enabled", True):
             sink = find_dualsense_sink()
@@ -529,6 +549,134 @@ class HapticsEngine(threading.Thread):
                 hidraw_file.close()
             except Exception:
                 pass
+
+    def _session_bt_proxy(self, dev):
+        """Bluetooth only: clones the controller via /dev/uhid, hides the real
+        device from everyone else (Steam included), relays its input/feature
+        reports transparently, and merges our own audio-reactive rumble into
+        whatever Steam separately writes for triggers/lightbar - see
+        bt_hid_proxy.py. Structurally a copy of _session_ff (same parec spawn,
+        same bass/treble/button DSP), swapping the FF_RUMBLE write for the
+        proxy's relay+merge each tick. Falls back through _session_fallback
+        (BT direct-audio/SAxense if the user has that enabled too, else
+        plain FF_RUMBLE) for this connection if the proxy can't be set up
+        (missing helper/udev rule, /dev/uhid inaccessible), with a 30s
+        cooldown before retrying so a persistently broken install doesn't
+        respawn the helper every 2s reconnect poll."""
+        session = bt_hid_proxy.BtHidProxySession()
+        try:
+            session.open()
+        except bt_hid_proxy.ProxyUnavailable:
+            self._emit_status("bt_proxy_unavailable")
+            self._bt_proxy_retry_after = time.monotonic() + 30
+            self._session_fallback(dev, "bluetooth")
+            return
+
+        proc = subprocess.Popen(
+            ["parec", "-d", "@DEFAULT_SINK@.monitor", "--format=s16le",
+             f"--rate={RATE}", f"--channels={CHANNELS}", "--raw", "--latency-msec=20"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        )
+
+        bass_y = treble_y = 0.0
+        bass_ceil = treble_ceil = 0.0
+        strong_env = weak_env = 0.0
+        button_strong_env = button_weak_env = 0.0
+        held_keys = {}
+        hat_x = hat_y = 0
+        update_hz = 1000.0 / CHUNK_MS
+        fmt = f"<{CHUNK_SAMPLES * CHANNELS}h"
+        last_status_emit = 0.0
+
+        try:
+            while not self._stop_event.is_set() and self.config.get("bt_hid_proxy", {}).get("enabled", False):
+                readable, _, _ = select.select(
+                    [session.real_fd, session.uhid_fd, proc.stdout], [], [], 0.02)
+
+                if proc.stdout in readable:
+                    data = proc.stdout.read(CHUNK_BYTES)
+                    if len(data) < CHUNK_BYTES:
+                        if proc.poll() is not None:
+                            raise RuntimeError("audio capture (parec) exited")
+                    else:
+                        cfg = self.config
+
+                        while True:
+                            ev = dev.read_one()
+                            if ev is None:
+                                break
+                            if ev.type == ecodes.EV_KEY:
+                                held_keys[ev.code] = ev.value != 0
+                            elif ev.type == ecodes.EV_ABS and ev.code in (ecodes.ABS_HAT0X, ecodes.ABS_HAT0Y):
+                                if ev.code == ecodes.ABS_HAT0X:
+                                    hat_x = ev.value
+                                else:
+                                    hat_y = ev.value
+                                held_keys[DPAD_VIRTUAL_CODE] = hat_x != 0 or hat_y != 0
+
+                        samples = struct.unpack(fmt, data)
+                        left = samples[0::2]
+                        right = samples[1::2]
+
+                        bass_y, bass_band = lowpass_block(left, bass_y, cfg["bass_cutoff_hz"], RATE)
+                        treble_y, treble_ref = lowpass_block(right, treble_y, cfg["treble_cutoff_hz"], RATE)
+                        treble_band = [r - t for r, t in zip(right, treble_ref)]
+
+                        bass_ceil, bass_delta = ceiling_step(
+                            peak(bass_band), bass_ceil,
+                            cfg["bass_ceiling"]["attack_s"], cfg["bass_ceiling"]["release_s"], update_hz)
+                        treble_ceil, treble_delta = ceiling_step(
+                            peak(treble_band), treble_ceil,
+                            cfg["treble_ceiling"]["attack_s"], cfg["treble_ceiling"]["release_s"], update_hz)
+
+                        strong_env, strong_mag = shape(bass_delta, strong_env, cfg["bass"])
+                        weak_env, weak_mag = shape(treble_delta, weak_env, cfg["treble"])
+
+                        gain = cfg["master_gain"]
+                        strong_mag = min(1.0, strong_mag * gain)
+                        weak_mag = min(1.0, weak_mag * gain)
+
+                        button_strong_target = 0.0
+                        button_weak_target = 0.0
+                        for code_str, entry in cfg["button_haptics"].items():
+                            if not entry.get("enabled") or not held_keys.get(int(code_str), False):
+                                continue
+                            side = BUTTON_SIDE.get(int(code_str), "weak")
+                            strength = entry.get("strength", 0.4)
+                            if side == "strong":
+                                button_strong_target = max(button_strong_target, strength)
+                            else:
+                                button_weak_target = max(button_weak_target, strength)
+
+                        button_strong_env += (button_strong_target - button_strong_env) * (
+                            BUTTON_ATTACK if button_strong_target > button_strong_env else BUTTON_RELEASE)
+                        button_weak_env += (button_weak_target - button_weak_env) * (
+                            BUTTON_ATTACK if button_weak_target > button_weak_env else BUTTON_RELEASE)
+
+                        strong_mag = min(1.0, strong_mag + button_strong_env)
+                        weak_mag = min(1.0, weak_mag + button_weak_env)
+
+                        session.write_rumble(strong_mag, weak_mag)
+                        self._emit_levels(strong_mag, weak_mag)
+
+                if session.real_fd in readable:
+                    session.relay_input()
+                if session.uhid_fd in readable:
+                    session.relay_output_or_get_report()
+
+                now = time.monotonic()
+                if now - last_status_emit > 1.5:
+                    last_status_emit = now
+                    self._emit_status("proxied")
+        finally:
+            proc.terminate()
+            proc.wait()
+            while True:
+                try:
+                    session.close()
+                    break
+                except KeyboardInterrupt:
+                    continue
 
     def _session_ff(self, dev):
         effect = ff.Effect(

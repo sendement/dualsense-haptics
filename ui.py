@@ -25,6 +25,7 @@ from presets import (
     TRIGGER_EFFECT_ORDER, TRIGGER_EFFECT_PARAMS,
 )
 from haptics_engine import DPAD_VIRTUAL_CODE
+import bt_hid_proxy
 import triggers
 import theme
 import i18n
@@ -1168,6 +1169,23 @@ class AdvancedPage(QWidget):
 
         inner_layout.addWidget(direct_box)
 
+        proxy_box = QGroupBox(t("group_bt_proxy"))
+        pl = QVBoxLayout(proxy_box)
+        proxy_hint = QLabel(t("bt_proxy_hint"))
+        proxy_hint.setProperty("role", "hint")
+        proxy_hint.setWordWrap(True)
+        pl.addWidget(proxy_hint)
+        proxy_privilege_hint = QLabel(t("bt_proxy_privilege_hint"))
+        proxy_privilege_hint.setProperty("role", "hint")
+        proxy_privilege_hint.setWordWrap(True)
+        pl.addWidget(proxy_privilege_hint)
+        proxy_cfg = active["bt_hid_proxy"]
+        self.bt_proxy_check = QCheckBox(t("bt_proxy_checkbox"))
+        self.bt_proxy_check.setChecked(proxy_cfg.get("enabled", False))
+        self.bt_proxy_check.toggled.connect(self._set_bt_proxy_enabled)
+        pl.addWidget(self.bt_proxy_check)
+        inner_layout.addWidget(proxy_box)
+
         self.bass_box = band_group(t("group_bass"), active["bass"], active["bass_ceiling"], on_change)
         self.treble_box = band_group(t("group_treble"), active["treble"], active["treble_ceiling"], on_change)
         inner_layout.addWidget(self.bass_box)
@@ -1195,6 +1213,19 @@ class AdvancedPage(QWidget):
         if self.on_change:
             self.on_change()
 
+    def _set_bt_proxy_enabled(self, checked):
+        if checked:
+            ok, _reason = bt_hid_proxy.preflight_check()
+            if not ok:
+                QMessageBox.warning(self, t("bt_proxy_unavailable_title"), t("bt_proxy_unavailable_body"))
+                self.bt_proxy_check.blockSignals(True)
+                self.bt_proxy_check.setChecked(False)
+                self.bt_proxy_check.blockSignals(False)
+                return
+        self.state["active"]["bt_hid_proxy"]["enabled"] = checked
+        if self.on_change:
+            self.on_change()
+
     def refresh(self):
         self.gain_slider.set_value(self.state["active"]["master_gain"])
         direct_cfg = self.state["active"]["direct_audio"]
@@ -1205,6 +1236,9 @@ class AdvancedPage(QWidget):
         self.direct_bt_check.blockSignals(True)
         self.direct_bt_check.setChecked(direct_cfg.get("bt_enabled", False))
         self.direct_bt_check.blockSignals(False)
+        self.bt_proxy_check.blockSignals(True)
+        self.bt_proxy_check.setChecked(self.state["active"]["bt_hid_proxy"].get("enabled", False))
+        self.bt_proxy_check.blockSignals(False)
         self.bass_box.refresh()
         self.treble_box.refresh()
 
@@ -1543,6 +1577,10 @@ class TrayApp:
             return t("status_searching")
         if self._status_kind == "overridden":
             return t("status_overridden")
+        if self._status_kind == "proxied":
+            return t("status_proxied")
+        if self._status_kind == "bt_proxy_unavailable":
+            return t("status_bt_proxy_unavailable")
         return t("status_error", msg=self._error_msg)
 
     def _battery_status_localized(self):
@@ -1573,7 +1611,8 @@ class TrayApp:
         self._disabled = not enabled
         self.toggle_action.setText(t("tray_disable_vibration") if enabled else t("tray_enable_vibration"))
         self._icon_status = "off" if not enabled else {
-            "connected": "ok", "searching": "searching", "error": "error",
+            "connected": "ok", "searching": "searching", "overridden": "searching",
+            "proxied": "ok", "bt_proxy_unavailable": "error", "error": "error",
         }.get(self._status_kind, "searching")
         self._refresh_icon()
         self.status_action.setText(self._status_display_text())
@@ -1597,13 +1636,18 @@ class TrayApp:
             self._status_kind = "searching"
         elif status == "overridden":
             self._status_kind = "overridden"
+        elif status == "proxied":
+            self._status_kind = "proxied"
+        elif status == "bt_proxy_unavailable":
+            self._status_kind = "bt_proxy_unavailable"
         else:
             self._status_kind = "error"
             self._error_msg = status[len("error: "):] if status.startswith("error: ") else status
 
         if not self._disabled:
             self._icon_status = {
-                "connected": "ok", "searching": "searching", "overridden": "searching", "error": "error",
+                "connected": "ok", "searching": "searching", "overridden": "searching",
+                "proxied": "ok", "bt_proxy_unavailable": "error", "error": "error",
             }[self._status_kind]
             self._refresh_icon()
 

@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QApplication
 from haptics_engine import HapticsEngine
 from config import load_state, save_state
 from ui import MainWindow, TrayApp, install_press_animations
+import bt_hid_proxy
 import theme
 import i18n
 
@@ -18,6 +19,8 @@ def main():
 
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+
+    bt_hid_proxy.recover_stale_lock()
 
     state = load_state()
     theme.manager.set_preference(state.get("theme", "system"))

@@ -19,11 +19,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from haptics_engine import HapticsEngine, read_battery  # noqa: E402
 from config import load_state, CONFIG_FILE  # noqa: E402
+import bt_hid_proxy  # noqa: E402
 
 
 def main():
     runtime_dir = sys.argv[1]
     status_file = os.path.join(runtime_dir, "status.json")
+
+    bt_hid_proxy.recover_stale_lock()
 
     state = load_state()
     engine = HapticsEngine(state["active"])

@@ -3,8 +3,11 @@ __pycache__/
 
 # makepkg build artifacts
 packaging/pkg/
-packaging/src/
 packaging/*.pkg.tar.*
+
+# packaging/src/ holds real, hand-written helper source (dualsense-hidlock.c)
+# that IS committed - only ignore actual build output that might land there.
+packaging/src/*.o
 
 # Decky plugin build tooling - dist/ IS committed (install.sh needs it, and
 # most SteamOS installs have no Node toolchain to build it themselves)

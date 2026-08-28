@@ -1,0 +1,18 @@
+post_install() {
+  getent group dualsense-haptics >/dev/null || groupadd -r dualsense-haptics
+  setcap 'cap_fowner+ep' /usr/lib/dualsense-haptics/dualsense-hidlock || \
+    echo ">>> Warning: setcap failed - the Bluetooth HID Proxy feature will be unavailable."
+  udevadm control --reload-rules 2>/dev/null || true
+  udevadm trigger --subsystem-match=misc --sysname-match=uhid 2>/dev/null || true
+  echo ">>> To use the Bluetooth HID Proxy (Trigger + Vibration Mix) feature, add yourself"
+  echo ">>> to the new group and log out and back in:"
+  echo ">>>     sudo usermod -aG dualsense-haptics \$USER"
+}
+
+post_upgrade() {
+  post_install
+}
+
+post_remove() {
+  getent group dualsense-haptics >/dev/null && groupdel dualsense-haptics 2>/dev/null || true
+}
