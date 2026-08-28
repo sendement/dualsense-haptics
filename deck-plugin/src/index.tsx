@@ -200,7 +200,10 @@ function MainSection({ t }: { t: (key: string) => string }) {
 
   const connectionLabel = connection === "usb" ? "USB" : connection === "bluetooth" ? "Bluetooth" : "—";
   const statusLabel =
-    status === "connected" ? t("status_connected") : status === "searching" ? t("status_searching") : status ?? "—";
+    status === "connected" ? t("status_connected")
+    : status === "searching" ? t("status_searching")
+    : status === "overridden" ? t("status_overridden")
+    : status ?? "—";
 
   return (
     <PanelSection title="DualSense Haptics">

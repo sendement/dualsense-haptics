@@ -555,6 +555,20 @@ class HapticsEngine(threading.Thread):
         update_hz = 1000.0 / CHUNK_MS
         fmt = f"<{CHUNK_SAMPLES * CHANNELS}h"
 
+        # Steam grabs raw HID control of the controller for games with native
+        # PS5 adaptive-trigger support, and keeps writing to it (at least for
+        # the lightbar) for as long as Steam itself runs - our FF_RUMBLE
+        # writes below still go out, but get overwritten by Steam's on the
+        # wire, so nothing physically reaches the motors. There's no way to
+        # win that write race (see the direct-audio sessions' own comments on
+        # concurrent FF_RUMBLE writes fighting each other), so this doesn't
+        # try - it just checks periodically (an fd/proc scan isn't cheap
+        # enough to do every 20ms chunk) whether another process is holding
+        # the device open, and reports it via status instead of silently
+        # claiming "connected" while doing nothing.
+        last_ownership_check = 0.0
+        last_reported_overridden = False
+
         try:
             while not self._stop_event.is_set():
                 data = proc.stdout.read(CHUNK_BYTES)
@@ -629,6 +643,15 @@ class HapticsEngine(threading.Thread):
                 dev.upload_effect(effect)
                 dev.write(ecodes.EV_FF, effect_id, 1)
                 self._emit_levels(strong_mag, weak_mag)
+
+                now = time.monotonic()
+                if now - last_ownership_check > 1.5:
+                    last_ownership_check = now
+                    import triggers  # deferred: avoids a circular import at module load time
+                    overridden = triggers.is_controller_owned_elsewhere()
+                    if overridden != last_reported_overridden:
+                        last_reported_overridden = overridden
+                        self._emit_status("overridden" if overridden else "connected")
         finally:
             try:
                 dev.erase_effect(effect_id)

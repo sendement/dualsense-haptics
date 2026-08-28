@@ -91,6 +91,7 @@ const STRINGS = {
         "home_vibration": "Vibration",
         "status_searching": "Searching for controller…",
         "status_connected": "Connected",
+        "status_overridden": "Overridden by Steam",
         "battery_unknown": "—",
         "btn_apply": "Apply",
         "triggers_title": "Adaptive Triggers",
@@ -146,6 +147,7 @@ const STRINGS = {
         "home_vibration": "Вибрация",
         "status_searching": "Поиск контроллера...",
         "status_connected": "Подключено",
+        "status_overridden": "Перехвачено Steam",
         "battery_unknown": "—",
         "btn_apply": "Применить",
         "triggers_title": "Адаптивные триггеры",
@@ -201,6 +203,7 @@ const STRINGS = {
         "home_vibration": "振动",
         "status_searching": "正在搜索控制器…",
         "status_connected": "已连接",
+        "status_overridden": "已被 Steam 接管",
         "battery_unknown": "—",
         "btn_apply": "应用",
         "triggers_title": "自适应扳机",
@@ -256,6 +259,7 @@ const STRINGS = {
         "home_vibration": "Vibración",
         "status_searching": "Buscando mando…",
         "status_connected": "Conectado",
+        "status_overridden": "Anulado por Steam",
         "battery_unknown": "—",
         "btn_apply": "Aplicar",
         "triggers_title": "Gatillos adaptativos",
@@ -311,6 +315,7 @@ const STRINGS = {
         "home_vibration": "Vibration",
         "status_searching": "Suche nach Controller…",
         "status_connected": "Verbunden",
+        "status_overridden": "Von Steam übersteuert",
         "battery_unknown": "—",
         "btn_apply": "Anwenden",
         "triggers_title": "Adaptive Trigger",
@@ -366,6 +371,7 @@ const STRINGS = {
         "home_vibration": "Vibration",
         "status_searching": "Recherche de la manette…",
         "status_connected": "Connectée",
+        "status_overridden": "Remplacé par Steam",
         "battery_unknown": "—",
         "btn_apply": "Appliquer",
         "triggers_title": "Gâchettes adaptatives",
@@ -421,6 +427,7 @@ const STRINGS = {
         "home_vibration": "振動",
         "status_searching": "コントローラーを検索中…",
         "status_connected": "接続済み",
+        "status_overridden": "Steamに上書きされています",
         "battery_unknown": "—",
         "btn_apply": "適用",
         "triggers_title": "アダプティブトリガー",
@@ -476,6 +483,7 @@ const STRINGS = {
         "home_vibration": "Vibração",
         "status_searching": "Procurando controle…",
         "status_connected": "Conectado",
+        "status_overridden": "Sobreposto pelo Steam",
         "battery_unknown": "—",
         "btn_apply": "Aplicar",
         "triggers_title": "Gatilhos adaptativos",
@@ -531,6 +539,7 @@ const STRINGS = {
         "home_vibration": "진동",
         "status_searching": "컨트롤러 검색 중…",
         "status_connected": "연결됨",
+        "status_overridden": "Steam이 가로챔",
         "battery_unknown": "—",
         "btn_apply": "적용",
         "triggers_title": "어댑티브 트리거",
@@ -740,7 +749,10 @@ function MainSection({ t }) {
         await setGain(value);
     };
     const connectionLabel = connection === "usb" ? "USB" : connection === "bluetooth" ? "Bluetooth" : "—";
-    const statusLabel = status === "connected" ? t("status_connected") : status === "searching" ? t("status_searching") : status ?? "—";
+    const statusLabel = status === "connected" ? t("status_connected")
+        : status === "searching" ? t("status_searching")
+            : status === "overridden" ? t("status_overridden")
+                : status ?? "—";
     return (SP_JSX.jsxs(DFL.PanelSection, { title: "DualSense Haptics", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: t("home_vibration"), checked: enabled, onChange: onToggle }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: { display: "flex", justifyContent: "space-between", fontSize: "0.85em", opacity: 0.75 }, children: [SP_JSX.jsxs("span", { children: [statusLabel, " \u00B7 ", connectionLabel] }), SP_JSX.jsx("span", { children: battery !== null ? `${battery}%` : "" })] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.DropdownItem, { label: t("preset_label"), rgOptions: presetList.map((p) => ({ data: p, label: t(PRESET_LABEL_KEYS[p] ?? p) })), selectedOption: activePreset, onChange: onPresetChange }) }), profileList.length > 0 && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.DropdownItem, { label: t("profile_label"), rgOptions: profileList.map((p) => ({ data: p, label: p })), selectedOption: activeProfile, onChange: onProfileChange }) })), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t("label_direct_gain"), value: gain, min: 0.2, max: 2.5, step: 0.05, notchTicksVisible: false, onChange: onGainChange }) })] }));
 }
 function TriggerPresetRow({ side, label, t }) {

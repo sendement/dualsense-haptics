@@ -1541,6 +1541,8 @@ class TrayApp:
             return t("status_connected")
         if self._status_kind == "searching":
             return t("status_searching")
+        if self._status_kind == "overridden":
+            return t("status_overridden")
         return t("status_error", msg=self._error_msg)
 
     def _battery_status_localized(self):
@@ -1593,12 +1595,16 @@ class TrayApp:
             self._status_kind = "connected"
         elif status == "searching":
             self._status_kind = "searching"
+        elif status == "overridden":
+            self._status_kind = "overridden"
         else:
             self._status_kind = "error"
             self._error_msg = status[len("error: "):] if status.startswith("error: ") else status
 
         if not self._disabled:
-            self._icon_status = {"connected": "ok", "searching": "searching", "error": "error"}[self._status_kind]
+            self._icon_status = {
+                "connected": "ok", "searching": "searching", "overridden": "searching", "error": "error",
+            }[self._status_kind]
             self._refresh_icon()
 
         text = self._status_display_text()
