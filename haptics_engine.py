@@ -701,8 +701,10 @@ class HapticsEngine(threading.Thread):
         lightbar/rumble live on, so BtHidProxySession's relay passes it
         straight through to real hardware untouched once it arrives via the
         clone. Steam's cached trigger effect is kept alive separately via
-        forward_cached_report(), since write_rumble()'s own motor-byte
-        override doesn't apply here - SAxense owns the motors instead."""
+        forward_trigger_only(), which - confirmed on real hardware - must
+        NOT also re-broadcast the game's cached rumble/HAPTICS_SELECT state:
+        doing so raced SAxense's own report for control of the motors and
+        drowned it out, even though they're technically distinct report IDs."""
         rate = BT_RATE
         chunk_samples = BT_CHUNK_SAMPLES
         stereo_bytes = chunk_samples * 2 * 2
@@ -796,7 +798,7 @@ class HapticsEngine(threading.Thread):
 
                         saxense.stdin.write(bytes(out))
                         saxense.stdin.flush()
-                        session.forward_cached_report()
+                        session.forward_trigger_only()
                         self._emit_levels(peak_left, peak_right)
 
                 if session.real_fd in readable:

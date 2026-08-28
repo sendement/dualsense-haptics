@@ -483,12 +483,27 @@ class BtHidProxySession:
         merged = merge_rumble(self.last_steam_report, strong_mag, weak_mag)
         os.write(self.real_fd, merged)
 
-    def forward_cached_report(self):
-        """Relays the cached (trigger-preserving) state to the real device
-        as-is, without overriding the rumble-motor bytes - used when
-        something else (SAxense's own, separate HID report) is driving the
-        motors instead of write_rumble()'s envelope-based merge."""
-        os.write(self.real_fd, bytes(self.last_steam_report))
+    def forward_trigger_only(self):
+        """Relays ONLY the cached trigger-effect fields to the real device -
+        used when something else (SAxense's own, separate HID report) is
+        driving the motors instead of write_rumble()'s envelope-based merge.
+        Deliberately does NOT forward the rest of last_steam_report
+        (rumble-motor bytes, HAPTICS_SELECT, lightbar/LED, ...): confirmed on
+        real hardware that re-broadcasting the game's own cached rumble
+        state at our own tick rate races SAxense's report for control of the
+        same motors and drowns it out, even though both are technically
+        distinct report IDs - the firmware appears to arbitrate them as one
+        shared "who's driving the motors right now" channel. A report built
+        from scratch with only the trigger fields set never touches that."""
+        report = bytearray(DEFAULT_OUTPUT_REPORT)
+        cached_flag0 = self.last_steam_report[3]
+        for flag, field in ((RIGHT_TRIGGER_FLAG, RIGHT_TRIGGER_FIELD), (LEFT_TRIGGER_FLAG, LEFT_TRIGGER_FIELD)):
+            if cached_flag0 & flag:
+                report[3] |= flag
+                report[field] = self.last_steam_report[field]
+        body = bytes(report[:-4])
+        report[-4:] = sony_crc32(OUTPUT_CRC_SEED, body).to_bytes(4, "little")
+        os.write(self.real_fd, bytes(report))
 
     def _teardown_fds(self):
         if self.uhid_fd is not None:
