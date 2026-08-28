@@ -16,7 +16,7 @@ import subprocess
 import evdev
 from evdev import ecodes
 
-from presets import TRIGGER_PRESETS, TRIGGER_EFFECT_PARAMS
+from presets import TRIGGER_PRESETS, TRIGGER_EFFECT_PARAMS, TRIGGER_RAW_CLI_NAME
 from haptics_engine import SONY_VENDOR_ID, DUALSENSE_PRODUCT_IDS
 
 
@@ -96,7 +96,8 @@ def build_custom_args(mode, values):
         if start_key in values and end_key in values and values[end_key] <= values[start_key]:
             _lo, hi = bounds[end_key]
             values[end_key] = min(values[start_key] + 1, hi)
-    return [mode] + [str(values[key]) for key, _lo, _hi, _default in spec]
+    cli_mode = TRIGGER_RAW_CLI_NAME.get(mode, mode)
+    return [cli_mode] + [str(values[key]) for key, _lo, _hi, _default in spec]
 
 
 def apply_custom_trigger(mode, values, trigger="both"):

@@ -833,6 +833,16 @@ class ProfilesPage(QWidget):
         self.refresh()
 
 
+def _trigger_param_label(key):
+    """feedback_raw/vibration_raw params are per-zone arrays (s0..s9 / a0..a9)
+    rather than named fields - reuse the existing strength/amplitude wording
+    with the zone index appended instead of adding 20 more translation keys."""
+    if key[0] in ("s", "a") and key[1:].isdigit():
+        base = "trig_param_strength" if key[0] == "s" else "trig_param_amplitude"
+        return f"{t(base)} {key[1:]}"
+    return t(f"trig_param_{key}")
+
+
 class CustomTriggerCard(QFrame):
     """Lets the user build a raw dualsensectl trigger effect by hand - pick
     an effect mode, dial in its parameters, apply. Restores whatever was
@@ -894,7 +904,7 @@ class CustomTriggerCard(QFrame):
             value = default
             if initial_values and key in initial_values:
                 value = max(lo, min(hi, initial_values[key]))
-            s = IntSlider(t(f"trig_param_{key}"), lo, hi, value)
+            s = IntSlider(_trigger_param_label(key), lo, hi, value)
             self.sliders_layout.addWidget(s)
             self.slider_widgets.append((key, s))
 

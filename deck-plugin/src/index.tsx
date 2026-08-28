@@ -82,7 +82,10 @@ const TRIGGER_PRESET_LABEL_KEYS: Record<string, string> = {
 };
 
 // Mirrors presets.TRIGGER_EFFECT_ORDER / TRIGGER_EFFECT_PARAMS in presets.py.
-const TRIGGER_EFFECT_ORDER = ["off", "feedback", "weapon", "bow", "machine", "galloping", "vibration"];
+const TRIGGER_EFFECT_ORDER = [
+  "off", "feedback", "weapon", "bow", "machine", "galloping", "vibration",
+  "feedback_raw", "vibration_raw",
+];
 const TRIGGER_MODE_LABEL_KEYS: Record<string, string> = {
   off: "label_trigger_off",
   feedback: "trig_mode_feedback",
@@ -91,7 +94,13 @@ const TRIGGER_MODE_LABEL_KEYS: Record<string, string> = {
   machine: "trig_mode_machine",
   galloping: "trig_mode_galloping",
   vibration: "trig_mode_vibration",
+  feedback_raw: "trig_mode_feedback_raw",
+  vibration_raw: "trig_mode_vibration_raw",
 };
+// feedback_raw/vibration_raw are per-zone arrays (s0..s9 / a0..a9) rather
+// than named fields - see the zone-label handling in TRIGGER_PARAM_LABEL_KEYS's
+// caller below, which reuses trig_param_strength/trig_param_amplitude with
+// the zone index appended instead of needing 20 more translation keys.
 const TRIGGER_EFFECT_PARAMS: Record<string, [string, number, number, number][]> = {
   off: [],
   feedback: [["position", 0, 9, 2], ["strength", 1, 8, 3]],
@@ -106,6 +115,11 @@ const TRIGGER_EFFECT_PARAMS: Record<string, [string, number, number, number][]> 
     ["second_foot", 1, 7, 5], ["frequency", 1, 15, 5],
   ],
   vibration: [["position", 0, 9, 1], ["amplitude", 1, 8, 6], ["frequency", 1, 15, 3]],
+  feedback_raw: Array.from({ length: 10 }, (_, i) => [`s${i}`, 0, 8, 0] as [string, number, number, number]),
+  vibration_raw: [
+    ...Array.from({ length: 10 }, (_, i) => [`a${i}`, 0, 8, 0] as [string, number, number, number]),
+    ["frequency", 1, 15, 5] as [string, number, number, number],
+  ],
 };
 const TRIGGER_PARAM_LABEL_KEYS: Record<string, string> = {
   position: "trig_param_position", strength: "trig_param_strength",
@@ -115,6 +129,13 @@ const TRIGGER_PARAM_LABEL_KEYS: Record<string, string> = {
   first_foot: "trig_param_first_foot", second_foot: "trig_param_second_foot",
   amplitude: "trig_param_amplitude",
 };
+
+// s0..s9 (feedback_raw) / a0..a9 (vibration_raw) -> "Strength 3" / "Amplitude 7".
+function triggerParamLabel(key: string, t: (key: string) => string): string {
+  const m = /^([sa])(\d)$/.exec(key);
+  if (m) return `${t(m[1] === "s" ? "trig_param_strength" : "trig_param_amplitude")} ${m[2]}`;
+  return t(TRIGGER_PARAM_LABEL_KEYS[key] ?? key);
+}
 
 function defaultValues(mode: string): Record<string, number> {
   const values: Record<string, number> = {};
@@ -283,9 +304,18 @@ function CustomTriggerCard({ side, label, t }: { side: "left" | "right"; label: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [side]);
 
-  const onModeChange = (option: { data: string }) => {
-    setMode(option.data);
-    setValues(defaultValues(option.data));
+  const onModeChange = async (option: { data: string }) => {
+    const newMode = option.data;
+    const newValues = defaultValues(newMode);
+    setMode(newMode);
+    setValues(newValues);
+    // Persist the mode switch to hardware+config right away (not just on
+    // "Apply") - the gamescope QAM panel can remount this card mid-session
+    // (e.g. returning focus from the dropdown's fullscreen flyout), and
+    // without this the remount's getCustomTrigger() re-fetch would still see
+    // the previously saved mode and snap the dropdown straight back to it.
+    if (newMode === "off") await turnOffTrigger(side);
+    else await applyCustomTrigger(newMode, newValues, side);
   };
 
   const onParamChange = (key: string, value: number) => {
@@ -310,7 +340,7 @@ function CustomTriggerCard({ side, label, t }: { side: "left" | "right"; label: 
       {(TRIGGER_EFFECT_PARAMS[mode] ?? []).map(([key, lo, hi]) => (
         <PanelSectionRow key={key}>
           <SliderField
-            label={t(TRIGGER_PARAM_LABEL_KEYS[key] ?? key)}
+            label={triggerParamLabel(key, t)}
             value={values[key] ?? lo}
             min={lo}
             max={hi}

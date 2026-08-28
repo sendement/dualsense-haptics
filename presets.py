@@ -99,7 +99,8 @@ TRIGGER_PRESET_ORDER = ["soft", "hard_wall", "weapon", "bow", "machine", "clicke
 # validation (main.c command_trigger_*), not guessed - e.g. "end"-style
 # params there must exceed their paired "start", which the UI doesn't
 # enforce live but triggers.build_custom_args() auto-corrects on apply.
-TRIGGER_EFFECT_ORDER = ["off", "feedback", "weapon", "bow", "machine", "galloping", "vibration"]
+TRIGGER_EFFECT_ORDER = ["off", "feedback", "weapon", "bow", "machine", "galloping", "vibration",
+                         "feedback_raw", "vibration_raw"]
 
 TRIGGER_EFFECT_PARAMS = {
     "off": [],
@@ -138,4 +139,17 @@ TRIGGER_EFFECT_PARAMS = {
         ("amplitude", 1, 8, 6),
         ("frequency", 1, 15, 3),
     ],
+    # feedback-raw: per-zone resistance strength, one slider per zone along
+    # the pull (z0 = start, z9 = fully pulled), 0 = no resistance at that
+    # zone. dualsensectl's feedback-raw has no frequency/amplitude parameter
+    # at all - it's a static resistance shape, not a vibrating effect.
+    "feedback_raw": [(f"s{i}", 0, 8, 0) for i in range(10)],
+    # vibration-raw: same per-zone array, but as buzz amplitude rather than
+    # static resistance, plus the one shared frequency all zones vibrate at.
+    "vibration_raw": [(f"a{i}", 0, 8, 0) for i in range(10)] + [("frequency", 1, 15, 5)],
 }
+
+# dualsensectl's CLI spells these with a hyphen ("feedback-raw"), which isn't
+# a valid Python identifier/dict-key-as-mode-name elsewhere in this app - map
+# the internal snake_case mode id to the literal CLI argument on apply.
+TRIGGER_RAW_CLI_NAME = {"feedback_raw": "feedback-raw", "vibration_raw": "vibration-raw"}

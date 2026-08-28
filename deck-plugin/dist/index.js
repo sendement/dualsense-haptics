@@ -109,6 +109,8 @@ const STRINGS = {
         "trig_mode_machine": "Machine Gun",
         "trig_mode_galloping": "Galloping",
         "trig_mode_vibration": "Vibration",
+        "trig_mode_feedback_raw": "Feedback (Raw)",
+        "trig_mode_vibration_raw": "Vibration (Raw)",
         "trig_param_position": "Position",
         "trig_param_strength": "Strength",
         "trig_param_start": "Start",
@@ -162,6 +164,8 @@ const STRINGS = {
         "trig_mode_machine": "Пулемёт",
         "trig_mode_galloping": "Галоп",
         "trig_mode_vibration": "Вибрация",
+        "trig_mode_feedback_raw": "Сопротивление (по зонам)",
+        "trig_mode_vibration_raw": "Вибрация (по зонам)",
         "trig_param_position": "Позиция",
         "trig_param_strength": "Сила",
         "trig_param_start": "Начало",
@@ -215,6 +219,8 @@ const STRINGS = {
         "trig_mode_machine": "机枪",
         "trig_mode_galloping": "疾驰",
         "trig_mode_vibration": "振动",
+        "trig_mode_feedback_raw": "反馈阻力（分区）",
+        "trig_mode_vibration_raw": "振动（分区）",
         "trig_param_position": "位置",
         "trig_param_strength": "强度",
         "trig_param_start": "起点",
@@ -268,6 +274,8 @@ const STRINGS = {
         "trig_mode_machine": "Ametralladora",
         "trig_mode_galloping": "Galope",
         "trig_mode_vibration": "Vibración",
+        "trig_mode_feedback_raw": "Resistencia (por zonas)",
+        "trig_mode_vibration_raw": "Vibración (por zonas)",
         "trig_param_position": "Posición",
         "trig_param_strength": "Fuerza",
         "trig_param_start": "Inicio",
@@ -321,6 +329,8 @@ const STRINGS = {
         "trig_mode_machine": "Maschinengewehr",
         "trig_mode_galloping": "Galopp",
         "trig_mode_vibration": "Vibration",
+        "trig_mode_feedback_raw": "Widerstand (Zonen)",
+        "trig_mode_vibration_raw": "Vibration (Zonen)",
         "trig_param_position": "Position",
         "trig_param_strength": "Stärke",
         "trig_param_start": "Start",
@@ -374,6 +384,8 @@ const STRINGS = {
         "trig_mode_machine": "Mitrailleuse",
         "trig_mode_galloping": "Galop",
         "trig_mode_vibration": "Vibration",
+        "trig_mode_feedback_raw": "Résistance (zones)",
+        "trig_mode_vibration_raw": "Vibration (zones)",
         "trig_param_position": "Position",
         "trig_param_strength": "Force",
         "trig_param_start": "Début",
@@ -427,6 +439,8 @@ const STRINGS = {
         "trig_mode_machine": "マシンガン",
         "trig_mode_galloping": "ギャロップ",
         "trig_mode_vibration": "振動",
+        "trig_mode_feedback_raw": "抵抗（ゾーン）",
+        "trig_mode_vibration_raw": "振動（ゾーン）",
         "trig_param_position": "位置",
         "trig_param_strength": "強さ",
         "trig_param_start": "開始",
@@ -480,6 +494,8 @@ const STRINGS = {
         "trig_mode_machine": "Metralhadora",
         "trig_mode_galloping": "Galope",
         "trig_mode_vibration": "Vibração",
+        "trig_mode_feedback_raw": "Resistência (zonas)",
+        "trig_mode_vibration_raw": "Vibração (zonas)",
         "trig_param_position": "Posição",
         "trig_param_strength": "Força",
         "trig_param_start": "Início",
@@ -533,6 +549,8 @@ const STRINGS = {
         "trig_mode_machine": "머신건",
         "trig_mode_galloping": "갤럽",
         "trig_mode_vibration": "진동",
+        "trig_mode_feedback_raw": "저항 (구간)",
+        "trig_mode_vibration_raw": "진동 (구간)",
         "trig_param_position": "위치",
         "trig_param_strength": "강도",
         "trig_param_start": "시작",
@@ -611,7 +629,10 @@ const TRIGGER_PRESET_LABEL_KEYS = {
     engine_hum: "trigger_engine_hum_label",
 };
 // Mirrors presets.TRIGGER_EFFECT_ORDER / TRIGGER_EFFECT_PARAMS in presets.py.
-const TRIGGER_EFFECT_ORDER = ["off", "feedback", "weapon", "bow", "machine", "galloping", "vibration"];
+const TRIGGER_EFFECT_ORDER = [
+    "off", "feedback", "weapon", "bow", "machine", "galloping", "vibration",
+    "feedback_raw", "vibration_raw",
+];
 const TRIGGER_MODE_LABEL_KEYS = {
     off: "label_trigger_off",
     feedback: "trig_mode_feedback",
@@ -620,7 +641,13 @@ const TRIGGER_MODE_LABEL_KEYS = {
     machine: "trig_mode_machine",
     galloping: "trig_mode_galloping",
     vibration: "trig_mode_vibration",
+    feedback_raw: "trig_mode_feedback_raw",
+    vibration_raw: "trig_mode_vibration_raw",
 };
+// feedback_raw/vibration_raw are per-zone arrays (s0..s9 / a0..a9) rather
+// than named fields - see the zone-label handling in TRIGGER_PARAM_LABEL_KEYS's
+// caller below, which reuses trig_param_strength/trig_param_amplitude with
+// the zone index appended instead of needing 20 more translation keys.
 const TRIGGER_EFFECT_PARAMS = {
     off: [],
     feedback: [["position", 0, 9, 2], ["strength", 1, 8, 3]],
@@ -635,6 +662,11 @@ const TRIGGER_EFFECT_PARAMS = {
         ["second_foot", 1, 7, 5], ["frequency", 1, 15, 5],
     ],
     vibration: [["position", 0, 9, 1], ["amplitude", 1, 8, 6], ["frequency", 1, 15, 3]],
+    feedback_raw: Array.from({ length: 10 }, (_, i) => [`s${i}`, 0, 8, 0]),
+    vibration_raw: [
+        ...Array.from({ length: 10 }, (_, i) => [`a${i}`, 0, 8, 0]),
+        ["frequency", 1, 15, 5],
+    ],
 };
 const TRIGGER_PARAM_LABEL_KEYS = {
     position: "trig_param_position", strength: "trig_param_strength",
@@ -644,6 +676,13 @@ const TRIGGER_PARAM_LABEL_KEYS = {
     first_foot: "trig_param_first_foot", second_foot: "trig_param_second_foot",
     amplitude: "trig_param_amplitude",
 };
+// s0..s9 (feedback_raw) / a0..a9 (vibration_raw) -> "Strength 3" / "Amplitude 7".
+function triggerParamLabel(key, t) {
+    const m = /^([sa])(\d)$/.exec(key);
+    if (m)
+        return `${t(m[1] === "s" ? "trig_param_strength" : "trig_param_amplitude")} ${m[2]}`;
+    return t(TRIGGER_PARAM_LABEL_KEYS[key] ?? key);
+}
 function defaultValues(mode) {
     const values = {};
     for (const [key, , , def] of TRIGGER_EFFECT_PARAMS[mode] ?? [])
@@ -743,9 +782,20 @@ function CustomTriggerCard({ side, label, t }) {
         })();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [side]);
-    const onModeChange = (option) => {
-        setMode(option.data);
-        setValues(defaultValues(option.data));
+    const onModeChange = async (option) => {
+        const newMode = option.data;
+        const newValues = defaultValues(newMode);
+        setMode(newMode);
+        setValues(newValues);
+        // Persist the mode switch to hardware+config right away (not just on
+        // "Apply") - the gamescope QAM panel can remount this card mid-session
+        // (e.g. returning focus from the dropdown's fullscreen flyout), and
+        // without this the remount's getCustomTrigger() re-fetch would still see
+        // the previously saved mode and snap the dropdown straight back to it.
+        if (newMode === "off")
+            await turnOffTrigger(side);
+        else
+            await applyCustomTrigger(newMode, newValues, side);
     };
     const onParamChange = (key, value) => {
         setValues((v) => ({ ...v, [key]: value }));
@@ -756,7 +806,7 @@ function CustomTriggerCard({ side, label, t }) {
         else
             await applyCustomTrigger(mode, values, side);
     };
-    return (SP_JSX.jsxs(DFL.PanelSection, { title: `${t("trigger_custom_title")} · ${label}`, children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.DropdownItem, { label: t("mode_label"), rgOptions: TRIGGER_EFFECT_ORDER.map((m) => ({ data: m, label: t(TRIGGER_MODE_LABEL_KEYS[m] ?? m) })), selectedOption: mode, onChange: onModeChange }) }), (TRIGGER_EFFECT_PARAMS[mode] ?? []).map(([key, lo, hi]) => (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t(TRIGGER_PARAM_LABEL_KEYS[key] ?? key), value: values[key] ?? lo, min: lo, max: hi, step: 1, notchTicksVisible: false, onChange: (v) => onParamChange(key, v) }) }, key))), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: onApply, children: t("btn_apply") }) })] }));
+    return (SP_JSX.jsxs(DFL.PanelSection, { title: `${t("trigger_custom_title")} · ${label}`, children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.DropdownItem, { label: t("mode_label"), rgOptions: TRIGGER_EFFECT_ORDER.map((m) => ({ data: m, label: t(TRIGGER_MODE_LABEL_KEYS[m] ?? m) })), selectedOption: mode, onChange: onModeChange }) }), (TRIGGER_EFFECT_PARAMS[mode] ?? []).map(([key, lo, hi]) => (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: triggerParamLabel(key, t), value: values[key] ?? lo, min: lo, max: hi, step: 1, notchTicksVisible: false, onChange: (v) => onParamChange(key, v) }) }, key))), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: onApply, children: t("btn_apply") }) })] }));
 }
 function DirectAudioSection({ t }) {
     const [directAudio, setDirectAudioState] = SP_REACT.useState({ enabled: true, gain: 5.0, bt_enabled: false });

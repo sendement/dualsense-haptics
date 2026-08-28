@@ -59,7 +59,8 @@ def _build_custom_args(mode, values):
         if start_key in values and end_key in values and values[end_key] <= values[start_key]:
             _lo, hi = bounds[end_key]
             values[end_key] = min(values[start_key] + 1, hi)
-    return [mode] + [str(int(values[key])) for key, _lo, _hi, _default in spec]
+    cli_mode = presets.TRIGGER_RAW_CLI_NAME.get(mode, mode)
+    return [cli_mode] + [str(int(values[key])) for key, _lo, _hi, _default in spec]
 
 
 class Plugin:
