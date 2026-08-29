@@ -62,6 +62,30 @@ LEFT_TRIGGER_FLAG = 0x08
 RIGHT_TRIGGER_FIELD = slice(13, 24)   # motor_mode(1) + param[10]
 LEFT_TRIGGER_FIELD = slice(24, 35)    # motor_mode(1) + param[10]
 
+# valid_flag1 (byte 4) bits and field offsets for the Immersive Lighting
+# visualizer (lightbar + the 5 player-indicator LEDs), per dualsensectl's
+# DS_OUTPUT_VALID_FLAG1_{LIGHTBAR,PLAYER_INDICATOR}_CONTROL_ENABLE and its
+# dualsense_output_report_common struct - offsets confirmed against
+# dualsensectl's own source rather than guessed, and cross-checked against
+# this file's own already-empirically-validated offsets (valid_flag0=3,
+# RIGHT/LEFT_TRIGGER_FIELD, valid_flag2=41 all land exactly where that
+# struct predicts once its 3-byte report_id/seq/tag header is accounted
+# for).
+LIGHTBAR_CONTROL_FLAG = 0x04
+PLAYER_INDICATOR_CONTROL_FLAG = 0x10
+PLAYER_LEDS_FIELD = 46
+PLAYER_LEDS_INSTANT = 0x20
+LIGHTBAR_RGB_FIELD = slice(47, 50)
+# Bass (impacts/low end) reads as red, mid as green, treble ("airy"/high
+# end) as blue - an arbitrary but intuitive association, not measured from
+# anything. All three blend additively per channel (see
+# apply_led_visualizer()), so e.g. a bass-and-treble-heavy moment reads as
+# magenta and a full-spectrum moment approaches white, rather than any one
+# band's color alone.
+BASS_COLOR = (255, 0, 0)
+MID_COLOR = (0, 255, 0)
+TREBLE_COLOR = (0, 0, 255)
+
 # Fixed identity for the clone's fake Bluetooth MAC, patched into feature
 # report 9 (hid-playstation refuses to double-bind two devices sharing a real
 # MAC). CLONE_UNIQ - what `dualsensectl -d <this>` (see triggers.py) needs to
@@ -115,18 +139,68 @@ def build_create2():
     return struct.pack("<I", UHID_CREATE2) + body
 
 
-def merge_rumble(base_report, strong, weak):
+BASS_PRIORITY = 0.6  # default for the "bass_priority" led_visualizer config knob
+
+
+def apply_led_visualizer(report, led):
+    """led = (bass_level, mid_level, treble_level, bass_priority), each
+    level 0.0-1.0 - bundled into one tuple rather than four separate
+    parameters since it threads through three call layers (this,
+    merge_rumble(), write_rumble()/forward_trigger_only()) untouched by any
+    of them. Sets the lightbar (BASS_COLOR/MID_COLOR/TREBLE_COLOR blended
+    additively per channel, each scaled by its own band's level - see the
+    color constants' own comment) and the 5 player-indicator LEDs (a
+    left-to-right bar graph sized by whichever band is loudest,
+    PLAYER_LEDS_INSTANT set so it tracks audio in real time instead of
+    fading). bass/treble are the same envelope magnitudes already driving
+    the strong/weak rumble motors, reused rather than recomputed; mid has
+    no motor to reuse from - see its own computation for why. Mutates
+    `report` in place; caller still owns recomputing the CRC afterward. See
+    command_lightbar3/command_player_leds in dualsensectl's source for the
+    underlying protocol this mirrors.
+
+    bass_priority ducks mid/treble's contribution proportionally to the
+    bass level before mixing - confirmed on real hardware that plain
+    additive mixing let a bass peak wash out toward white whenever mid/
+    treble were also present, when a hit should read as a clear, dominant
+    red instead."""
+    bass_level, mid_level, treble_level, bass_priority = led
+    bass_level = max(0.0, min(1.0, bass_level))
+    mid_level = max(0.0, min(1.0, mid_level))
+    treble_level = max(0.0, min(1.0, treble_level))
+    # The bar graph reflects true overall loudness - compute it before
+    # ducking mid/treble below, which is a color-mix concern only.
+    lit = round(max(bass_level, mid_level, treble_level) * 5)
+    duck = 1.0 - max(0.0, min(1.0, bass_priority)) * bass_level
+    mid_level *= duck
+    treble_level *= duck
+    report[4] |= LIGHTBAR_CONTROL_FLAG | PLAYER_INDICATOR_CONTROL_FLAG
+    report[LIGHTBAR_RGB_FIELD] = bytes(
+        min(255, round(bass_level * bc + mid_level * mc + treble_level * tc))
+        for bc, mc, tc in zip(BASS_COLOR, MID_COLOR, TREBLE_COLOR)
+    )
+    report[PLAYER_LEDS_FIELD] = ((1 << lit) - 1) | PLAYER_LEDS_INSTANT
+
+
+def merge_rumble(base_report, strong, weak, led=None):
     """base_report is whatever Steam/the driver last wrote (trigger effects,
     LED, everything) - only the two rumble-motor bytes and the two "select"
     valid-flag bits get overwritten with our own audio-reactive magnitude.
     Ground truth for which bits (HAPTICS_SELECT 0x02, not COMPATIBLE_VIBRATION
     0x01 as dualsensectl's own constant naming misleadingly suggests) came
-    from sniffing a real, felt-working kernel FF_RUMBLE write over the air."""
+    from sniffing a real, felt-working kernel FF_RUMBLE write over the air.
+    led, if not None (see apply_led_visualizer() for its shape), also
+    drives the Immersive Lighting visualizer - optional so callers that
+    don't want it (or don't have BT proxy's exclusive device access to
+    safely fight Steam's own lightbar writes) can leave the cached
+    lightbar/LED state untouched."""
     report = bytearray(base_report)
     report[3] |= 0x02   # valid_flag0 |= DS_OUTPUT_VALID_FLAG0_HAPTICS_SELECT
     report[41] |= 0x04  # valid_flag2 |= DS_OUTPUT_VALID_FLAG2_COMPATIBLE_VIBRATION2
     report[6] = max(0, min(255, int(strong * 255)))  # motor_left (strong)
     report[5] = max(0, min(255, int(weak * 255)))    # motor_right (weak)
+    if led is not None:
+        apply_led_visualizer(report, led)
     body = bytes(report[:-4])
     crc = sony_crc32(OUTPUT_CRC_SEED, body)
     report[-4:] = crc.to_bytes(4, "little")
@@ -641,28 +715,34 @@ class BtHidProxySession:
             merged[-4:] = sony_crc32(OUTPUT_CRC_SEED, body).to_bytes(4, "little")
         return merged
 
-    def write_rumble(self, strong_mag, weak_mag):
-        merged = merge_rumble(self.last_steam_report, strong_mag, weak_mag)
+    def write_rumble(self, strong_mag, weak_mag, led=None):
+        merged = merge_rumble(self.last_steam_report, strong_mag, weak_mag, led)
         os.write(self.real_fd, merged)
 
-    def forward_trigger_only(self):
-        """Relays ONLY the cached trigger-effect fields to the real device -
-        used when something else (SAxense's own, separate HID report) is
-        driving the motors instead of write_rumble()'s envelope-based merge.
-        Deliberately does NOT forward the rest of last_steam_report
-        (rumble-motor bytes, HAPTICS_SELECT, lightbar/LED, ...): confirmed on
-        real hardware that re-broadcasting the game's own cached rumble
-        state at our own tick rate races SAxense's report for control of the
-        same motors and drowns it out, even though both are technically
-        distinct report IDs - the firmware appears to arbitrate them as one
-        shared "who's driving the motors right now" channel. A report built
-        from scratch with only the trigger fields set never touches that."""
+    def forward_trigger_only(self, led=None):
+        """Relays ONLY the cached trigger-effect fields (plus, optionally,
+        the Immersive Lighting visualizer - a separate field group gated by
+        its own valid_flag1 bits, so it doesn't touch the motor-arbitration
+        conflict described below) to the real device - used when something
+        else (SAxense's own, separate HID report) is driving the motors
+        instead of write_rumble()'s envelope-based merge. Deliberately does
+        NOT forward the rest of last_steam_report (rumble-motor bytes,
+        HAPTICS_SELECT, ...): confirmed on real hardware that
+        re-broadcasting the game's own cached rumble state at our own tick
+        rate races SAxense's report for control of the same motors and
+        drowns it out, even though both are technically distinct report
+        IDs - the firmware appears to arbitrate them as one shared "who's
+        driving the motors right now" channel. A report built from scratch
+        with only the trigger (and lighting) fields set never touches
+        that."""
         report = bytearray(DEFAULT_OUTPUT_REPORT)
         cached_flag0 = self.last_steam_report[3]
         for flag, field in ((RIGHT_TRIGGER_FLAG, RIGHT_TRIGGER_FIELD), (LEFT_TRIGGER_FLAG, LEFT_TRIGGER_FIELD)):
             if cached_flag0 & flag:
                 report[3] |= flag
                 report[field] = self.last_steam_report[field]
+        if led is not None:
+            apply_led_visualizer(report, led)
         body = bytes(report[:-4])
         report[-4:] = sony_crc32(OUTPUT_CRC_SEED, body).to_bytes(4, "little")
         os.write(self.real_fd, bytes(report))
