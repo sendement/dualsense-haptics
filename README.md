@@ -126,6 +126,30 @@ Bluetooth.
 
 ## Installation
 
+### Easiest: the graphical setup wizard
+
+One wizard installs anything you want - the app itself, the Steam Deck
+plugin, and the two optional extras below - with a few clicks and your
+admin password when needed:
+
+- **No clone needed**: download
+  [`dualsense-haptics-bootstrap.desktop`](packaging/dualsense-haptics-bootstrap.desktop)
+  on its own and double-click it in a file manager - it fetches the setup
+  wizard itself and takes it from there. No git clone, no terminal.
+- **If you already cloned the repo**: run
+  `packaging/dualsense-haptics-setup.sh`, or double-click
+  `packaging/dualsense-haptics-setup.desktop`.
+
+It shows a checklist of what to set up, then handles the
+compiling/downloading/installing itself (needs
+[`zenity`](https://gitlab.gnome.org/GNOME/zenity), already installed on
+most desktops). On Arch it builds and installs the real package; on other
+distros it sets up a source checkout under `~/.local/share/dualsense-haptics`
+plus an app-menu launcher. You can re-run it any time to add more later.
+
+The sections below cover the same steps by hand, if you'd rather not run
+someone else's script, or don't have `zenity`.
+
 ### Arch Linux / pacman
 
 A `PKGBUILD` is included under [`packaging/`](packaging/):
@@ -174,21 +198,8 @@ package's `.install` hook already sets up Trigger + Vibration Mix
 automatically; SAxense is never auto-installed anywhere, since it's a
 separate project.
 
-**Easiest, no clone needed**: download
-[`dualsense-haptics-bootstrap.desktop`](packaging/dualsense-haptics-bootstrap.desktop)
-on its own and double-click it in a file manager - it fetches the setup
-wizard itself and takes it from there. No git clone, no terminal.
-
-**Easiest, if you already cloned the repo**: run
-`packaging/dualsense-haptics-setup.sh`, or double-click
-`packaging/dualsense-haptics-setup.desktop`. It shows a checklist of which
-of the two to set up, then handles the compiling/downloading/installing
-itself, asking for your admin password once per feature via a graphical
-prompt (needs [`zenity`](https://gitlab.gnome.org/GNOME/zenity), already
-installed on most desktops).
-
-**Manual**, if you'd rather not run someone else's script, or don't have
-`zenity`:
+The [setup wizard](#easiest-the-graphical-setup-wizard) above handles both
+of these too. To do it by hand instead:
 
 ```sh
 # SAxense
@@ -226,7 +237,8 @@ handles the cloned device - see [How it works](#how-it-works) for what the
 feature does on desktop, where this doesn't come up.
 
 Requires [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader#-installation)
-already installed. Then:
+already installed. Easiest: pick "Steam Deck / Decky Loader plugin" in the
+[setup wizard](#easiest-the-graphical-setup-wizard) above. By hand instead:
 
 ```sh
 git clone https://github.com/sendement/dualsense-haptics.git
