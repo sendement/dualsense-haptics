@@ -208,9 +208,16 @@ def find_led_paths(dev):
     which dropped that proxy entirely (see _session_bt_proxy's own history)
     - since it drives the device through the kernel's own LED subsystem
     instead of a raw hidraw write, with no exclusive-access dance needed.
-    Returns (lightbar_path, [5 player paths, in order]); any element is
-    None if this kernel's hid-playstation doesn't expose it (older
-    kernels don't)."""
+    Returns ((multi_intensity_path, brightness_path, max_brightness),
+    [5 player paths, in order]); the lightbar tuple (or any of its
+    elements) is None, and each player path is None, if this kernel's
+    hid-playstation doesn't expose it (older kernels don't). The lightbar's
+    own `brightness` is the multi-color LED's master scaling factor - a
+    multi_intensity write alone was confirmed on real hardware to stay
+    invisible whenever this starts out (or gets set to) 0, e.g. a device
+    that's never had anything else address it as a multi-color LED before -
+    write_led_sysfs() forces it to max_brightness on every write rather
+    than assume the kernel's own default already has it there."""
     try:
         input_dir = os.path.realpath(f"/sys/class/input/{os.path.basename(dev.path)}/device")
         leds_dir = os.path.join(os.path.dirname(os.path.dirname(input_dir)), "leds")
@@ -221,7 +228,13 @@ def find_led_paths(dev):
     players = [None] * 5
     for name in names:
         if name.endswith(":rgb:indicator"):
-            lightbar = os.path.join(leds_dir, name, "multi_intensity")
+            led_dir = os.path.join(leds_dir, name)
+            try:
+                with open(os.path.join(led_dir, "max_brightness")) as f:
+                    max_brightness = f.read().strip()
+            except OSError:
+                max_brightness = "255"
+            lightbar = (os.path.join(led_dir, "multi_intensity"), os.path.join(led_dir, "brightness"), max_brightness)
         else:
             m = _PLAYER_LED_RE.match(name)
             if m:
@@ -231,16 +244,22 @@ def find_led_paths(dev):
     return lightbar, players
 
 
-def write_led_sysfs(lightbar_path, player_paths, led):
+def write_led_sysfs(lightbar, player_paths, led):
     """Applies led_rgb_and_bar(led) via find_led_paths()'s sysfs files
     instead of a hidraw report - see find_led_paths() for when/why. Missing
     paths (kernel without LED class support) are silently skipped rather
     than raising, same as a report-byte write would just be a no-op on
     hardware that doesn't support it."""
     rgb, lit = bt_hid_proxy.led_rgb_and_bar(led)
-    if lightbar_path:
+    if lightbar:
+        multi_intensity_path, brightness_path, max_brightness = lightbar
         try:
-            with open(lightbar_path, "w") as f:
+            with open(brightness_path, "w") as f:
+                f.write(max_brightness)
+        except OSError:
+            pass
+        try:
+            with open(multi_intensity_path, "w") as f:
                 f.write(f"{rgb[0]} {rgb[1]} {rgb[2]}")
         except OSError:
             pass
