@@ -174,13 +174,18 @@ package's `.install` hook already sets up Trigger + Vibration Mix
 automatically; SAxense is never auto-installed anywhere, since it's a
 separate project.
 
-**Easiest**: run the setup wizard - `packaging/dualsense-haptics-setup.sh`,
-or double-click `packaging/dualsense-haptics-setup.desktop` in a file
-manager. It shows a checklist of which of the two to set up, then handles
-the compiling/downloading/installing itself, asking for your admin
-password once per feature via a graphical prompt (needs
-[`zenity`](https://gitlab.gnome.org/GNOME/zenity), already installed on
-most desktops).
+**Easiest, no clone needed**: download
+[`dualsense-haptics-bootstrap.desktop`](packaging/dualsense-haptics-bootstrap.desktop)
+on its own and double-click it in a file manager - it fetches the setup
+wizard itself and takes it from there. No git clone, no terminal.
+
+**Easiest, if you already cloned the repo**: run
+`packaging/dualsense-haptics-setup.sh`, or double-click
+`packaging/dualsense-haptics-setup.desktop`. It shows a checklist of which
+of the two to set up, then handles the compiling/downloading/installing
+itself, asking for your admin password once per feature via a graphical
+prompt (needs [`zenity`](https://gitlab.gnome.org/GNOME/zenity), already
+installed on most desktops).
 
 **Manual**, if you'd rather not run someone else's script, or don't have
 `zenity`:

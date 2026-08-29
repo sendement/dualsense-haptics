@@ -11,9 +11,33 @@
 # terminal beyond double-clicking dualsense-haptics-setup.desktop - the
 # same "download it, double-click it, type your password once" shape as
 # Decky Loader's own installer.
+#
+# Also runs standalone (no git clone needed at all): if this file is run on
+# its own - e.g. downloaded straight from dualsense-haptics-bootstrap.desktop,
+# with none of the repo's other files sitting next to it - it clones the repo
+# itself into a temp dir the moment it actually needs a file from it.
 set -uo pipefail
 
+REPO_URL="https://github.com/sendement/dualsense-haptics.git"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BOOTSTRAPPED_REPO_DIR=""
+if [ ! -f "$REPO_DIR/packaging/src/dualsense-hidlock.c" ]; then
+    REPO_DIR=""   # running standalone; cloned lazily, only if actually needed below
+fi
+
+ensure_repo() {
+    if [ -n "$REPO_DIR" ]; then
+        return 0
+    fi
+    BOOTSTRAPPED_REPO_DIR=$(mktemp -d)
+    if ! git clone --depth=1 "$REPO_URL" "$BOOTSTRAPPED_REPO_DIR" 2>/dev/null; then
+        rm -rf "$BOOTSTRAPPED_REPO_DIR"
+        BOOTSTRAPPED_REPO_DIR=""
+        return 1
+    fi
+    REPO_DIR="$BOOTSTRAPPED_REPO_DIR"
+    return 0
+}
 
 if ! command -v zenity &>/dev/null; then
     MSG="This setup wizard needs 'zenity' (a small dialog tool most desktops already have).\n\nInstall it with your package manager - e.g. 'sudo pacman -S zenity' or 'sudo apt install zenity' - then run this again. Or follow the manual steps under the README's \"Other distributions\" section instead."
@@ -55,9 +79,15 @@ failures=""
 
 if [ "$want_trigger_mix" = 1 ]; then
     (
+        echo "5"; echo "# Fetching setup files..."
+        if ! ensure_repo; then
+            echo "100"; exit 1
+        fi
+
         echo "10"; echo "# Compiling the helper..."
         HELPER_TMP=$(mktemp)
         if ! gcc -O2 -o "$HELPER_TMP" "$REPO_DIR/packaging/src/dualsense-hidlock.c"; then
+            [ -n "$BOOTSTRAPPED_REPO_DIR" ] && rm -rf "$BOOTSTRAPPED_REPO_DIR"
             echo "100"; exit 1
         fi
 
@@ -77,6 +107,7 @@ EOF
         ok=1
         pkexec "$PRIV_SCRIPT" || ok=0
         rm -f "$PRIV_SCRIPT" "$HELPER_TMP"
+        [ -n "$BOOTSTRAPPED_REPO_DIR" ] && rm -rf "$BOOTSTRAPPED_REPO_DIR"
         echo "100"
         [ "$ok" = 1 ] || exit 1
     ) | zenity --progress --title="Setting up Trigger + Vibration Mix" --auto-close --no-cancel --pulsate
