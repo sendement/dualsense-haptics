@@ -179,6 +179,18 @@ def connection_kind(dev):
 
 _PLAYER_LED_RE = re.compile(r".*:white:player-(\d)$")
 
+# write_led_sysfs() touches up to 6 separate LED class device files (the
+# lightbar's multi_intensity plus 5 player-indicator brightness files) each
+# time it's called - each write has the kernel driver send its own fresh HID
+# output report over the wire. Calling it every audio tick (every 20ms, i.e.
+# up to 300 extra BT reports/sec) was confirmed on real hardware to destroy
+# the controller's Bluetooth connection within a couple of seconds on a Deck
+# - presumably a channel already busier than a desktop's, per direct-audio's
+# own crackle discussion. Throttled to this interval instead; still visually
+# smooth since _led_smooth()'s own attack/release envelope is what actually
+# produces the perceived motion, not the raw write rate.
+LED_WRITE_INTERVAL_S = 0.08
+
 
 def find_led_paths(dev):
     """Sysfs LED class device paths for this DualSense's lightbar (an RGB
@@ -707,6 +719,7 @@ class HapticsEngine(threading.Thread):
         led_bass_smooth = led_mid_smooth = led_treble_smooth = 0.0
         led_update_hz = 1000.0 / BT_CHUNK_MS
         lightbar_path, player_led_paths = find_led_paths(dev)
+        led_last_write = 0.0
 
         try:
             while not self._stop_event.is_set() and not self._bt_proxy_should_retry("bluetooth"):
@@ -794,8 +807,11 @@ class HapticsEngine(threading.Thread):
                     led_bass_smooth, led_bass_out = _led_smooth(led_bass_mag, led_bass_smooth, att, rel, gam)
                     led_mid_smooth, led_mid_out = _led_smooth(led_mid_mag, led_mid_smooth, att, rel, gam)
                     led_treble_smooth, led_treble_out = _led_smooth(led_treble_mag, led_treble_smooth, att, rel, gam)
-                    write_led_sysfs(lightbar_path, player_led_paths,
-                                     (led_bass_out, led_mid_out, led_treble_out, led_cfg.get("bass_priority", 0.6)))
+                    now = time.monotonic()
+                    if now - led_last_write > LED_WRITE_INTERVAL_S:
+                        led_last_write = now
+                        write_led_sysfs(lightbar_path, player_led_paths,
+                                         (led_bass_out, led_mid_out, led_treble_out, led_cfg.get("bass_priority", 0.6)))
 
                 out = bytearray(chunk_samples * 2)
                 peak_left = peak_right = 0.0
@@ -1243,6 +1259,7 @@ class HapticsEngine(threading.Thread):
         mid_env = 0.0
         led_bass_smooth = led_mid_smooth = led_treble_smooth = 0.0
         lightbar_path, player_led_paths = find_led_paths(dev)
+        led_last_write = 0.0
         button_strong_env = button_weak_env = 0.0
         held_keys = {}
         hat_x = hat_y = 0
@@ -1350,8 +1367,11 @@ class HapticsEngine(threading.Thread):
                     led_bass_smooth, led_bass_out = _led_smooth(strong_mag, led_bass_smooth, att, rel, gam)
                     led_mid_smooth, led_mid_out = _led_smooth(mid_mag, led_mid_smooth, att, rel, gam)
                     led_treble_smooth, led_treble_out = _led_smooth(weak_mag, led_treble_smooth, att, rel, gam)
-                    write_led_sysfs(lightbar_path, player_led_paths,
-                                     (led_bass_out, led_mid_out, led_treble_out, led_cfg.get("bass_priority", 0.6)))
+                    now = time.monotonic()
+                    if now - led_last_write > LED_WRITE_INTERVAL_S:
+                        led_last_write = now
+                        write_led_sysfs(lightbar_path, player_led_paths,
+                                         (led_bass_out, led_mid_out, led_treble_out, led_cfg.get("bass_priority", 0.6)))
 
                 effect.u.ff_rumble_effect.strong_magnitude = int(strong_mag * 0xFFFF)
                 effect.u.ff_rumble_effect.weak_magnitude = int(weak_mag * 0xFFFF)
