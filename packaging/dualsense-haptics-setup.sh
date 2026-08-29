@@ -87,6 +87,7 @@ if { [ "$want_app" = 1 ] || [ "$want_deck" = 1 ] || [ "$want_trigger_mix" = 1 ];
 fi
 
 failures=""
+app_pacman_installed=0
 
 if [ "$want_app" = 1 ]; then
     if command -v pacman &>/dev/null; then
@@ -102,16 +103,20 @@ if [ "$want_app" = 1 ]; then
 
             echo "60"; echo "# Installing (admin access)..."
             PRIV_SCRIPT=$(mktemp)
+            # Two known, harmless reasons the plain install can fail, both
+            # retried in one go rather than parsed out of pacman's message:
             # dualsensectl is AUR-only, so a fresh machine without an AUR
-            # helper run first won't have it - don't let that block the rest
-            # of the app (everything but adaptive triggers works without
-            # it), retry with --nodeps only if it's specifically the reason
-            # the plain install failed.
+            # helper run first won't have it (--nodeps - everything but
+            # adaptive triggers works without it anyway); and the helper
+            # binary/udev rule may already sit on disk unowned by any
+            # package, from an earlier Trigger + Vibration Mix-only run
+            # before "app" existed in this wizard (--overwrite - safe here,
+            # they're files this project manages either way).
             cat > "$PRIV_SCRIPT" <<EOF
 #!/bin/bash
 set -e
 pacman -S --needed --noconfirm python pyside6 python-evdev libpulse libcap || true
-pacman -U --noconfirm "$PWD/$PKGFILE" || pacman -U --noconfirm --nodeps "$PWD/$PKGFILE"
+pacman -U --noconfirm "$PWD/$PKGFILE" || pacman -U --noconfirm --nodeps --overwrite '*' "$PWD/$PKGFILE"
 EOF
             chmod +x "$PRIV_SCRIPT"
             ok=1
@@ -123,6 +128,8 @@ EOF
         if [ "${PIPESTATUS[0]}" -ne 0 ]; then
             failures="$failures\n- DualSense Haptics app"
             zenity --error --title="App install failed" --text="Building or installing the package failed - see /tmp/dualsense-haptics-makepkg.log and /tmp/dualsense-haptics-pacman.log.\n\nMake sure build tools are installed (sudo pacman -S base-devel), then try again. Adaptive triggers need dualsensectl too, which is AUR-only (paru -S dualsensectl or yay -S dualsensectl) - install it yourself if you want that; everything else works without it."
+        else
+            app_pacman_installed=1
         fi
     else
         (
@@ -197,16 +204,39 @@ EOF
 fi
 
 if [ "$want_trigger_mix" = 1 ]; then
-    (
-        echo "10"; echo "# Compiling the helper..."
-        HELPER_TMP=$(mktemp)
-        if ! gcc -O2 -o "$HELPER_TMP" "$REPO_DIR/packaging/src/dualsense-hidlock.c"; then
-            echo "100"; exit 1
-        fi
+    if [ "$app_pacman_installed" = 1 ]; then
+        # The Arch package's own .install hook already built/installed the
+        # helper and the udev rule, and created the group - it just can't
+        # safely learn which desktop user to add to that group. Redoing the
+        # rest here would leave pacman's file database out of sync with
+        # what's really on disk, so only do the part that's actually left.
+        (
+            echo "50"; echo "# Requesting admin access..."
+            PRIV_SCRIPT=$(mktemp)
+            cat > "$PRIV_SCRIPT" <<EOF
+#!/bin/bash
+set -e
+usermod -aG dualsense-haptics "$USER"
+EOF
+            chmod +x "$PRIV_SCRIPT"
+            ok=1
+            pkexec "$PRIV_SCRIPT" || ok=0
+            rm -f "$PRIV_SCRIPT"
+            echo "100"
+            [ "$ok" = 1 ] || exit 1
+        ) | zenity --progress --title="Setting up Trigger + Vibration Mix" --auto-close --no-cancel --pulsate
+        [ "${PIPESTATUS[0]}" -ne 0 ] && failures="$failures\n- Trigger + Vibration Mix"
+    else
+        (
+            echo "10"; echo "# Compiling the helper..."
+            HELPER_TMP=$(mktemp)
+            if ! gcc -O2 -o "$HELPER_TMP" "$REPO_DIR/packaging/src/dualsense-hidlock.c"; then
+                echo "100"; exit 1
+            fi
 
-        echo "50"; echo "# Requesting admin access..."
-        PRIV_SCRIPT=$(mktemp)
-        cat > "$PRIV_SCRIPT" <<EOF
+            echo "50"; echo "# Requesting admin access..."
+            PRIV_SCRIPT=$(mktemp)
+            cat > "$PRIV_SCRIPT" <<EOF
 #!/bin/bash
 set -e
 install -Dm755 "$HELPER_TMP" /usr/lib/dualsense-haptics/dualsense-hidlock
@@ -216,14 +246,15 @@ install -Dm644 "$REPO_DIR/packaging/71-dualsense-haptics-uhid.rules" /usr/lib/ud
 udevadm control --reload-rules
 usermod -aG dualsense-haptics "$USER"
 EOF
-        chmod +x "$PRIV_SCRIPT"
-        ok=1
-        pkexec "$PRIV_SCRIPT" || ok=0
-        rm -f "$PRIV_SCRIPT" "$HELPER_TMP"
-        echo "100"
-        [ "$ok" = 1 ] || exit 1
-    ) | zenity --progress --title="Setting up Trigger + Vibration Mix" --auto-close --no-cancel --pulsate
-    [ "${PIPESTATUS[0]}" -ne 0 ] && failures="$failures\n- Trigger + Vibration Mix"
+            chmod +x "$PRIV_SCRIPT"
+            ok=1
+            pkexec "$PRIV_SCRIPT" || ok=0
+            rm -f "$PRIV_SCRIPT" "$HELPER_TMP"
+            echo "100"
+            [ "$ok" = 1 ] || exit 1
+        ) | zenity --progress --title="Setting up Trigger + Vibration Mix" --auto-close --no-cancel --pulsate
+        [ "${PIPESTATUS[0]}" -ne 0 ] && failures="$failures\n- Trigger + Vibration Mix"
+    fi
 fi
 
 if [ "$want_saxense" = 1 ]; then
