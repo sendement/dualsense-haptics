@@ -18,6 +18,7 @@ import fcntl
 import glob
 import json
 import os
+import select
 import struct
 import subprocess
 import time
@@ -420,6 +421,26 @@ class BtHidProxySession:
         try:
             self.uhid_fd = os.open("/dev/uhid", os.O_RDWR)
             os.write(self.uhid_fd, build_create2())
+            # hid-playstation issues its own GET_REPORT for feature report 9
+            # (MAC/pairing info) as part of binding the clone, immediately
+            # after CREATE2 - confirmed on real hardware (dmesg: "Failed to
+            # retrieve feature with reportID 9: -5", "Failed to create
+            # dualsense") that if the caller goes on to do anything slow
+            # before ever reading uhid_fd (resolving the clone's hidraw path
+            # for SAxense can itself take up to ~2s, plus spawning parec/
+            # SAxense), the kernel's own request can time out and fail that
+            # bind attempt outright - the *next* attempt (a fresh reconnect)
+            # usually succeeds since it isn't racing anything, which is
+            # exactly the "dies once right after connecting, then fine"
+            # pattern this fixes. Servicing uhid_fd here, before returning
+            # control to the caller, answers that request promptly instead.
+            deadline = time.monotonic() + 1.5
+            quiet_until = time.monotonic() + 0.3
+            while time.monotonic() < deadline and time.monotonic() < quiet_until:
+                readable, _, _ = select.select([self.uhid_fd], [], [], 0.1)
+                if readable:
+                    self.relay_output_or_get_report()
+                    quiet_until = time.monotonic() + 0.3
         except OSError as e:
             self._teardown_fds()
             self._backend.restore(self._original_modes)
