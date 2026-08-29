@@ -165,24 +165,32 @@ git clone https://github.com/nowrep/dualsensectl.git
 cd dualsensectl && make && sudo make install
 ```
 
-### Optional: experimental Bluetooth direct-audio
+### Optional: SAxense and Trigger + Vibration Mix
 
-Not required for anything else in the app. Only needed if you want to turn
-on **Advanced Settings → Direct Audio → Enable over Bluetooth
-(experimental)**:
+Neither is required for anything else in the app - only for **Advanced
+Settings → Direct Audio → Enable over Bluetooth (experimental)** and
+**Advanced Settings → Trigger + Vibration Mix** respectively. The Arch
+package's `.install` hook already sets up Trigger + Vibration Mix
+automatically; SAxense is never auto-installed anywhere, since it's a
+separate project.
+
+**Easiest**: run the setup wizard - `packaging/dualsense-haptics-setup.sh`,
+or double-click `packaging/dualsense-haptics-setup.desktop` in a file
+manager. It shows a checklist of which of the two to set up, then handles
+the compiling/downloading/installing itself, asking for your admin
+password once per feature via a graphical prompt (needs
+[`zenity`](https://gitlab.gnome.org/GNOME/zenity), already installed on
+most desktops).
+
+**Manual**, if you'd rather not run someone else's script, or don't have
+`zenity`:
 
 ```sh
+# SAxense
 git clone https://github.com/egormanga/SAxense.git
 cd SAxense && make && sudo install -Dm755 SAxense /usr/local/bin/SAxense
-```
 
-### Optional: Trigger + Vibration Mix
-
-The Arch package's `.install` hook does all of this automatically. On other
-distributions, only needed if you want to turn on **Advanced Settings →
-Trigger + Vibration Mix**:
-
-```sh
+# Trigger + Vibration Mix
 sudo groupadd -r dualsense-haptics
 sudo usermod -aG dualsense-haptics "$USER"    # log out and back in after this
 sudo install -Dm755 packaging/src/dualsense-hidlock.c /tmp/dualsense-hidlock.c
