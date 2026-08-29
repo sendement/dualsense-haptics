@@ -695,6 +695,18 @@ class HapticsEngine(threading.Thread):
         held_keys = {}
         hat_x = hat_y = 0
         phase = 0.0
+        # Immersive Lighting only - see _run_bt_proxy_saxense's identical
+        # block for the full rationale (this path has no existing band-split
+        # either, SAxense drives the motors from literal PCM). Uses the
+        # sysfs LED path (find_led_paths()/write_led_sysfs()) rather than a
+        # proxy session, same as _session_ff, since this session runs with
+        # no Bluetooth HID Proxy in the picture at all.
+        led_bass_y = led_treble_y = led_mid_y = 0.0
+        led_bass_ceil = led_treble_ceil = led_mid_ceil = 0.0
+        led_bass_env = led_treble_env = led_mid_env = 0.0
+        led_bass_smooth = led_mid_smooth = led_treble_smooth = 0.0
+        led_update_hz = 1000.0 / BT_CHUNK_MS
+        lightbar_path, player_led_paths = find_led_paths(dev)
 
         try:
             while not self._stop_event.is_set() and not self._bt_proxy_should_retry("bluetooth"):
@@ -726,6 +738,40 @@ class HapticsEngine(threading.Thread):
                 left_in = samples[0::2]
                 right_in = samples[1::2]
 
+                led_on = cfg.get("led_visualizer", {}).get("enabled", False)
+                led_bass_mag = led_mid_mag = led_treble_mag = 0.0
+                if led_on:
+                    # Raw int16-scale, not normalized - see
+                    # _run_bt_proxy_saxense's identical block for why
+                    # (lowpass_block()/peak() normalize internally; doing it
+                    # here too would double-normalize and crush every band
+                    # to ~0).
+                    left_norm = [s * gain for s in left_in]
+                    right_norm = [s * gain for s in right_in]
+                    led_bass_y, led_bass_band = lowpass_block(left_norm, led_bass_y, cfg["bass_cutoff_hz"], rate)
+                    led_treble_y, led_treble_ref = lowpass_block(right_norm, led_treble_y, cfg["treble_cutoff_hz"], rate)
+                    led_treble_band = [r - t for r, t in zip(right_norm, led_treble_ref)]
+                    led_mid_y, led_mid_lp = lowpass_block(right_norm, led_mid_y, cfg["bass_cutoff_hz"], rate)
+                    led_mid_band = [t - m for t, m in zip(led_treble_ref, led_mid_lp)]
+
+                    led_bass_ceil, led_bass_delta = ceiling_step(
+                        peak(led_bass_band), led_bass_ceil,
+                        cfg["bass_ceiling"]["attack_s"], cfg["bass_ceiling"]["release_s"], led_update_hz)
+                    led_treble_ceil, led_treble_delta = ceiling_step(
+                        peak(led_treble_band), led_treble_ceil,
+                        cfg["treble_ceiling"]["attack_s"], cfg["treble_ceiling"]["release_s"], led_update_hz)
+                    led_mid_ceil, led_mid_delta = ceiling_step(
+                        peak(led_mid_band), led_mid_ceil,
+                        cfg["treble_ceiling"]["attack_s"], cfg["treble_ceiling"]["release_s"], led_update_hz)
+
+                    led_bass_env, led_bass_mag = shape(led_bass_delta, led_bass_env, cfg["bass"])
+                    led_treble_env, led_treble_mag = shape(led_treble_delta, led_treble_env, cfg["treble"])
+                    led_mid_env, led_mid_mag = shape(led_mid_delta, led_mid_env, cfg["treble"])
+                    led_gain = cfg["master_gain"]
+                    led_bass_mag = min(1.0, led_bass_mag * led_gain)
+                    led_mid_mag = min(1.0, led_mid_mag * led_gain)
+                    led_treble_mag = min(1.0, led_treble_mag * led_gain)
+
                 button_strong_target = 0.0
                 button_weak_target = 0.0
                 for code_str, entry in cfg["button_haptics"].items():
@@ -741,6 +787,15 @@ class HapticsEngine(threading.Thread):
                     BUTTON_ATTACK if button_strong_target > button_strong_env else BUTTON_RELEASE)
                 button_weak_env += (button_weak_target - button_weak_env) * (
                     BUTTON_ATTACK if button_weak_target > button_weak_env else BUTTON_RELEASE)
+
+                if led_on:
+                    led_cfg = cfg.get("led_visualizer", {})
+                    att, rel, gam = led_cfg.get("attack", 0.5), led_cfg.get("release", 0.08), led_cfg.get("gamma", 1.8)
+                    led_bass_smooth, led_bass_out = _led_smooth(led_bass_mag, led_bass_smooth, att, rel, gam)
+                    led_mid_smooth, led_mid_out = _led_smooth(led_mid_mag, led_mid_smooth, att, rel, gam)
+                    led_treble_smooth, led_treble_out = _led_smooth(led_treble_mag, led_treble_smooth, att, rel, gam)
+                    write_led_sysfs(lightbar_path, player_led_paths,
+                                     (led_bass_out, led_mid_out, led_treble_out, led_cfg.get("bass_priority", 0.6)))
 
                 out = bytearray(chunk_samples * 2)
                 peak_left = peak_right = 0.0
