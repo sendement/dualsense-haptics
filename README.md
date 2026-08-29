@@ -47,6 +47,21 @@ Adaptive trigger effects (L2/R2 resistance profiles) are applied via
 [`dualsensectl`](https://github.com/nowrep/dualsensectl), since they're
 one-shot HID reports rather than something worth reimplementing here.
 
+Over Bluetooth, Steam grabs raw HID control of the controller for any game
+with native adaptive-trigger support and keeps writing to it for as long as
+Steam runs — this app's own rumble still gets sent, but gets silently
+overwritten on the wire, so nothing reaches the motors even though trigger
+effects keep working. **Trigger + Vibration Mix** (desktop only, opt-in
+under **Advanced Settings**, off by default) fixes this: it clones the
+controller via `/dev/uhid`, hides the real device from everyone else, and
+merges its own audio-reactive rumble into whatever Steam separately writes
+for triggers/lightbar before forwarding it to the real hardware — so both
+work at once instead of one silently blocking the other. It needs the
+udev rule and small setcap'd helper the Arch package installs
+automatically (see [Installation](#installation)); without them it falls
+back to the same "detect and report" behavior described in
+[Limitations](#limitations).
+
 ## Features
 
 - **Direct audio-to-haptics over USB** — live system audio streamed as
@@ -67,7 +82,9 @@ one-shot HID reports rather than something worth reimplementing here.
   hand and experiment beyond the presets. If a game is already driving the
   triggers itself, the app detects that the device is held open elsewhere
   and skips automatically re-applying its own effect on reconnect, so it
-  won't fight the game.
+  won't fight the game — or, on Bluetooth, turn on **Trigger + Vibration
+  Mix** (desktop only, see [How it works](#how-it-works)) so it doesn't
+  need to skip anything in the first place.
 - **Per-button haptics** — pick any face button, bumper, trigger click,
   stick click, or the D-pad to buzz lightly while held, mixed with the audio
   vibration, at its own strength, from the motor on that side of the pad.
@@ -96,6 +113,9 @@ one-shot HID reports rather than something worth reimplementing here.
   for adaptive trigger effects; everything else works without it
 - [SAxense](https://github.com/egormanga/SAxense) — optional, only needed
   for the experimental Bluetooth direct-audio mode (off by default)
+- A udev rule and small setcap'd helper — optional, only needed for
+  **Trigger + Vibration Mix** (off by default); the Arch package installs
+  both automatically, see [Installation](#installation)
 - Your user needs read/write access to the controller's `evdev`/`hidraw`
   devices (normally granted via the `input`/`plugdev` group or a udev rule
   that ships with `hid-playstation`-aware distros; if in doubt, check
@@ -156,6 +176,23 @@ git clone https://github.com/egormanga/SAxense.git
 cd SAxense && make && sudo install -Dm755 SAxense /usr/local/bin/SAxense
 ```
 
+### Optional: Trigger + Vibration Mix
+
+The Arch package's `.install` hook does all of this automatically. On other
+distributions, only needed if you want to turn on **Advanced Settings →
+Trigger + Vibration Mix**:
+
+```sh
+sudo groupadd -r dualsense-haptics
+sudo usermod -aG dualsense-haptics "$USER"    # log out and back in after this
+sudo install -Dm755 packaging/src/dualsense-hidlock.c /tmp/dualsense-hidlock.c
+gcc -O2 -o /usr/lib/dualsense-haptics/dualsense-hidlock /tmp/dualsense-hidlock.c
+sudo setcap 'cap_fowner+ep' /usr/lib/dualsense-haptics/dualsense-hidlock
+sudo install -Dm644 packaging/71-dualsense-haptics-uhid.rules \
+    /usr/lib/udev/rules.d/71-dualsense-haptics-uhid.rules
+sudo udevadm control --reload-rules
+```
+
 ## Steam Deck / SteamOS (Decky Loader plugin)
 
 A trimmed-down version lives under [`deck-plugin/`](deck-plugin/) as a
@@ -166,9 +203,14 @@ Game Mode. It shares the same engine as the desktop app (same
 the same kind of config, just through a much smaller set of controls: an
 on/off toggle, connection/battery status, presets, saved profiles (created
 on desktop, selectable here), adaptive trigger presets, and the Direct
-Audio USB/Bluetooth toggles. Per-button haptics and the custom trigger
-builder are desktop-only - deliberately left out to keep the QAM panel to a
-handful of widgets.
+Audio USB/Bluetooth toggles. Per-button haptics, the custom trigger
+builder, and Trigger + Vibration Mix are desktop-only - the first two are
+deliberately left out to keep the QAM panel to a handful of widgets; the
+proxy was tried on Deck too but pulled after live testing in Big
+Picture/gamescope kept showing a duplicate controller icon with doubled
+inputs on reconnect, traced to how Steam's own controller detection
+handles the cloned device - see [How it works](#how-it-works) for what the
+feature does on desktop, where this doesn't come up.
 
 Requires [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader#-installation)
 already installed. Then:
@@ -214,6 +256,8 @@ tray icon's context menu to reopen, toggle vibration, or quit. Check
 - Built and tested on Arch/Hyprland; should work anywhere with a recent
   kernel and PipeWire/PulseAudio, but other desktop environments and
   distros haven't been extensively tested.
+- Trigger + Vibration Mix is desktop-only (not in the Decky plugin) — see
+  [Steam Deck / SteamOS](#steam-deck--steamos-decky-loader-plugin) for why.
 
 ## Credits
 

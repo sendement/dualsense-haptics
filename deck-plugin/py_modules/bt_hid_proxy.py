@@ -147,9 +147,19 @@ def patch_report9_mac(fdata):
     return body + crc.to_bytes(4, "little")
 
 
-def find_real_hid_sys_path():
+def find_real_hid_sys_path(require_driver_bound=True):
     """sysfs path for the genuine controller's hid instance, excluding any of
-    our own clones (tagged with HID_PHYS=CLONE_PHYS in their uevent)."""
+    our own clones (tagged with HID_PHYS=CLONE_PHYS in their uevent).
+
+    require_driver_bound=False finds the hid instance as soon as it's
+    registered on the bus, before hid-playstation's own probe() has
+    finished attaching to it and before "DRIVER=playstation" appears in
+    uevent - used for locking the real device down as fast as possible
+    (see HapticsEngine._service_bt_proxy_idle()). This is safe because
+    hidraw is a bus-level subsystem, not a driver-specific one: the node
+    this looks for under sys_path/hidraw/ is usable for open()/chmod() the
+    moment it exists, regardless of whether the specific hid_driver bound
+    to it has finished its own initialization."""
     for sys_path in glob.glob("/sys/bus/hid/devices/0005:054C:0CE6.*") + \
             glob.glob("/sys/bus/hid/devices/0005:054c:0ce6.*"):
         uevent_path = os.path.join(sys_path, "uevent")
@@ -158,7 +168,7 @@ def find_real_hid_sys_path():
         uevent = open(uevent_path).read()
         if CLONE_PHYS in uevent:
             continue
-        if "DRIVER=playstation" not in uevent:
+        if require_driver_bound and "DRIVER=playstation" not in uevent:
             continue
         return sys_path
     return None
@@ -183,7 +193,7 @@ def real_device_nodes(sys_path):
 def find_clone_hidraw_path(timeout=2.0):
     """sysfs path for OUR OWN clone's hidraw node (tagged with
     HID_PHYS=CLONE_PHYS), for pointing SAxense's literal-PCM output at the
-    clone instead of the real device - see BtHidProxySession.open()'s
+    clone instead of the real device - see BtHidProxySession.attach()'s
     caller. hid-playstation binds and creates the hidraw node asynchronously
     after UHID_CREATE2, so this polls briefly rather than assuming it exists
     immediately."""
@@ -198,7 +208,20 @@ def find_clone_hidraw_path(timeout=2.0):
                 continue
             matches = glob.glob(os.path.join(sys_path, "hidraw", "hidraw*"))
             if matches:
-                return f"/dev/{os.path.basename(matches[0])}"
+                dev_path = f"/dev/{os.path.basename(matches[0])}"
+                # sysfs and devtmpfs population aren't synchronized - the
+                # sysfs entry above can appear before the /dev node exists.
+                # Confirmed on real hardware that opening this path for
+                # writing (via plain open(path, "wb"), which implies
+                # O_CREAT) in that gap silently creates a regular file
+                # instead of failing, permanently shadowing the real
+                # character device the kernel registers moments later:
+                # every future write - across every future proxy session,
+                # not just this one - then goes into that dead file and
+                # nowhere else. Only return a path that already exists as an
+                # actual device node.
+                if os.path.exists(dev_path):
+                    return dev_path
         time.sleep(0.05)
     return None
 
@@ -374,8 +397,32 @@ class BtHidProxySession:
         self._backend = None
         self._original_modes = None
         self.last_steam_report = bytearray(DEFAULT_OUTPUT_REPORT)
+        self.last_input_report = None
 
-    def open(self):
+    def attach(self):
+        """Locks out and opens the real device. The very first call also
+        creates the uhid clone; later calls (after detach(), once the real
+        device reconnects) only re-establish the real-device side and leave
+        an already-existing clone untouched. This matters because Steam's
+        controller detection does not treat "the same clone (same uniq)
+        rebound after a destroy+recreate" as a reconnect of what it already
+        knew about - confirmed on real hardware that *every* clone rebuild,
+        whether from a plain Bluetooth reconnect or from toggling this
+        feature off/on, left Big Picture/gamescope showing a second
+        controller icon with doubled button presses alongside the first.
+        Keeping the clone itself alive across real-device reconnects (this
+        method) and real-device disconnects (see detach()) avoids that
+        entirely - Steam only ever sees the clone bind once per engine
+        run.
+
+        Idempotent: a no-op if already attached, so a caller racing to lock
+        the real device down as fast as possible (see
+        HapticsEngine._service_bt_proxy_idle()) and the regular per-
+        connection caller (HapticsEngine._session_bt_proxy()) can both call
+        this without either one leaking the other's fd or clobbering the
+        recorded original permissions with the already-locked (0600) mode."""
+        if self.real_fd is not None:
+            return
         # A few short retries: launching a game can make Steam Input
         # briefly renegotiate the controller's connection, during which the
         # real hid instance's sysfs path can transiently disappear for well
@@ -384,14 +431,22 @@ class BtHidProxySession:
         # 30s fallback cooldown for something that had already resolved
         # itself a moment later.
         sys_path = None
+        nodes = []
         for _ in range(5):
-            sys_path = find_real_hid_sys_path()
+            # Locking down permissions only needs the hidraw node to exist,
+            # not for hid-playstation's own probe() to have finished - see
+            # find_real_hid_sys_path()'s require_driver_bound docstring. The
+            # bus-level sys_path and its hidraw child can each lag slightly,
+            # so keep retrying until both are actually there rather than
+            # raising the moment the (still hidraw-less) sys_path shows up.
+            sys_path = find_real_hid_sys_path(require_driver_bound=False)
             if sys_path:
-                break
+                nodes = real_device_nodes(sys_path)
+                if any("/hidraw" in n for n in nodes):
+                    break
             time.sleep(0.2)
         if not sys_path:
             raise ProxyUnavailable("real DualSense hid instance not found")
-        nodes = real_device_nodes(sys_path)
         real_path = next((n for n in nodes if "/hidraw" in n), None)
         if not real_path:
             raise ProxyUnavailable("no hidraw node under the real hid instance")
@@ -407,60 +462,134 @@ class BtHidProxySession:
         # since the ACL mask reduction that blocks Steam's named-user grant
         # blocks ours too - confirmed empirically, not just in theory.
         try:
-            self.real_fd = os.open(real_path, os.O_RDWR)
+            real_fd = os.open(real_path, os.O_RDWR)
         except OSError as e:
             raise ProxyUnavailable(f"could not open real hidraw: {e}") from e
 
-        self._backend = make_privilege_backend()
-        self._original_modes = self._backend.lock(nodes)
-        if real_path not in self._original_modes:
-            self._teardown_fds()
-            self._backend.restore(self._original_modes)
+        backend = make_privilege_backend()
+        original_modes = backend.lock(nodes)
+        if real_path not in original_modes:
+            try:
+                os.close(real_fd)
+            except OSError:
+                pass
+            backend.restore(original_modes)
             raise ProxyUnavailable("could not lock the real hidraw node")
 
-        try:
-            self.uhid_fd = os.open("/dev/uhid", os.O_RDWR)
-            os.write(self.uhid_fd, build_create2())
-            # hid-playstation issues its own GET_REPORT for feature report 9
-            # (MAC/pairing info) as part of binding the clone, immediately
-            # after CREATE2 - confirmed on real hardware (dmesg: "Failed to
-            # retrieve feature with reportID 9: -5", "Failed to create
-            # dualsense") that if the caller goes on to do anything slow
-            # before ever reading uhid_fd (resolving the clone's hidraw path
-            # for SAxense can itself take up to ~2s, plus spawning parec/
-            # SAxense), the kernel's own request can time out and fail that
-            # bind attempt outright - the *next* attempt (a fresh reconnect)
-            # usually succeeds since it isn't racing anything, which is
-            # exactly the "dies once right after connecting, then fine"
-            # pattern this fixes. Servicing uhid_fd here, before returning
-            # control to the caller, answers that request promptly instead.
-            deadline = time.monotonic() + 1.5
-            quiet_until = time.monotonic() + 0.3
-            while time.monotonic() < deadline and time.monotonic() < quiet_until:
-                readable, _, _ = select.select([self.uhid_fd], [], [], 0.1)
-                if readable:
-                    self.relay_output_or_get_report()
-                    quiet_until = time.monotonic() + 0.3
-        except OSError as e:
-            self._teardown_fds()
-            self._backend.restore(self._original_modes)
-            raise ProxyUnavailable(f"clone setup failed: {e}") from e
+        self.real_fd = real_fd
+        self._backend = backend
+        self._original_modes = original_modes
+
+        if self.uhid_fd is None:
+            try:
+                self.uhid_fd = os.open("/dev/uhid", os.O_RDWR)
+                os.write(self.uhid_fd, build_create2())
+                # hid-playstation issues its own GET_REPORT for feature report 9
+                # (MAC/pairing info) as part of binding the clone, immediately
+                # after CREATE2 - confirmed on real hardware (dmesg: "Failed to
+                # retrieve feature with reportID 9: -5", "Failed to create
+                # dualsense") that if the caller goes on to do anything slow
+                # before ever reading uhid_fd (resolving the clone's hidraw path
+                # for SAxense can itself take up to ~2s, plus spawning parec/
+                # SAxense), the kernel's own request can time out and fail that
+                # bind attempt outright - the *next* attempt (a fresh reconnect)
+                # usually succeeds since it isn't racing anything, which is
+                # exactly the "dies once right after connecting, then fine"
+                # pattern this fixes. Servicing uhid_fd here, before returning
+                # control to the caller, answers that request promptly instead.
+                deadline = time.monotonic() + 1.5
+                quiet_until = time.monotonic() + 0.3
+                while time.monotonic() < deadline and time.monotonic() < quiet_until:
+                    readable, _, _ = select.select([self.uhid_fd], [], [], 0.1)
+                    if readable:
+                        self.relay_output_or_get_report()
+                        quiet_until = time.monotonic() + 0.3
+            except OSError as e:
+                self._teardown_fds()
+                self._backend.restore(self._original_modes)
+                self._backend = None
+                self._original_modes = None
+                raise ProxyUnavailable(f"clone setup failed: {e}") from e
 
         write_lock_state(self._original_modes, os.getpid())
+
+    def detach(self):
+        """Releases the real device only - the uhid clone stays alive (see
+        attach()) so Steam never sees it disappear. Safe to call even if
+        attach() never succeeded."""
+        if self.real_fd is not None:
+            try:
+                os.close(self.real_fd)
+            except OSError:
+                pass
+            self.real_fd = None
+        if self._backend is not None and self._original_modes is not None:
+            self._backend.restore(self._original_modes)
+        self._backend = None
+        self._original_modes = None
+        if self.uhid_fd is not None:
+            write_lock_state({}, os.getpid())
+
+    def destroy(self):
+        """Full teardown: detaches from the real device if still attached,
+        then destroys the clone itself. Only call this when the feature is
+        being turned off or the engine is shutting down - not on a routine
+        real-device disconnect, which should go through detach() instead so
+        a later reconnect can attach() to the same, still-alive clone."""
+        self.detach()
+        if self.uhid_fd is not None:
+            try:
+                os.write(self.uhid_fd, struct.pack("<I", UHID_DESTROY))
+            except OSError:
+                pass
+            try:
+                os.close(self.uhid_fd)
+            except OSError:
+                pass
+            self.uhid_fd = None
+        clear_lock_state()
 
     def relay_input(self):
         """One non-blocking-caller-responsibility read of real_fd -> UHID_INPUT2
         into uhid_fd. Caller (HapticsEngine) is expected to have already
         select()ed/polled real_fd as readable."""
         data = os.read(self.real_fd, 256)
+        self.last_input_report = data
         ev = struct.pack("<I", UHID_INPUT2) + struct.pack("<H", len(data)) + _pad(data, 4096)
+        os.write(self.uhid_fd, ev)
+
+    def heartbeat_input(self):
+        """Re-sends the last known real INPUT report to the clone, unchanged
+        - used while detached (real device disconnected, see detach()) to
+        keep the clone looking alive to Steam. Confirmed on real hardware
+        (Steam's own controller.txt log) that a detach gap with no input
+        traffic at all makes Steam's own hidraw read time out ("Controller
+        device closed after hid_read failure"), and the very next
+        successful read - once we reattach and relay_input() resumes - gets
+        treated as a brand new local device with its own fresh XInput slot,
+        even though the clone itself was never destroyed: this is what
+        actually produced the persistent duplicate icon, not clone
+        recreation or the real device's exposure window (both fixed
+        separately, see attach()/_service_bt_proxy_idle())."""
+        if self.last_input_report is None or self.uhid_fd is None:
+            return
+        ev = (struct.pack("<I", UHID_INPUT2)
+              + struct.pack("<H", len(self.last_input_report))
+              + _pad(self.last_input_report, 4096))
         os.write(self.uhid_fd, ev)
 
     def relay_output_or_get_report(self):
         """One read of uhid_fd: caches a Steam OUTPUT write (report 0x31) for
         the next write_rumble() merge, passes through anything else
         untouched, and answers GET_REPORT by relaying from the real device
-        (patching feature report 9's MAC first)."""
+        (patching feature report 9's MAC first). Also called while detached
+        (self.real_fd is None) - see HapticsEngine._service_bt_proxy_idle():
+        the clone persists across a real-device disconnect, so something
+        still has to drain uhid_fd during the gap or its bounded event queue
+        fills up ("Output queue is full" in dmesg) from Steam's own writes
+        continuing against a clone it still thinks is present. Anything that
+        would otherwise need the real device just gets a harmless no-op/
+        error response instead."""
         data = os.read(self.uhid_fd, 4 + 4096 + 256)
         (etype,) = struct.unpack_from("<I", data, 0)
         if etype == UHID_OUTPUT:
@@ -469,13 +598,13 @@ class BtHidProxySession:
             report = data[4:4 + size]
             if rtype == 1 and len(report) == len(DEFAULT_OUTPUT_REPORT):
                 self.last_steam_report = self._merge_incoming_output(report)
-            else:
+            elif self.real_fd is not None:
                 os.write(self.real_fd, report)
         elif etype == UHID_GET_REPORT:
             req_id, rnum, rtype = struct.unpack_from("<IBB", data, 4)
             try:
-                fdata = hidiocgfeature(self.real_fd, rnum) if rtype == 0 else b""
-                err = 0
+                fdata = hidiocgfeature(self.real_fd, rnum) if rtype == 0 and self.real_fd is not None else b""
+                err = 0 if self.real_fd is not None else 1
                 if rnum == 9:
                     fdata = patch_report9_mac(fdata)
             except OSError:
@@ -556,13 +685,3 @@ class BtHidProxySession:
                 pass
             self.real_fd = None
 
-    def close(self):
-        """Idempotent - safe to call repeatedly if interrupted mid-cleanup by
-        a rapid second signal (confirmed necessary against real hardware: a
-        second SIGTERM can interrupt signal.signal()/pthread_sigmask() calls
-        themselves mid-cleanup). Caller is expected to wrap this in a
-        while-True/except-and-retry loop; every step here is safe to repeat."""
-        self._teardown_fds()
-        if self._backend is not None and self._original_modes is not None:
-            self._backend.restore(self._original_modes)
-        clear_lock_state()

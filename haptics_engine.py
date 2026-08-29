@@ -247,9 +247,24 @@ class HapticsEngine(threading.Thread):
         self.level_queue = queue.Queue(maxsize=1)
         self.connection_queue = queue.Queue(maxsize=1)
         self._stop_event = threading.Event()
+        # Persists across reconnects - see _session_bt_proxy() and
+        # _teardown_bt_proxy_session(). Only ever destroyed (not just
+        # detached) when the feature is disabled or the engine stops.
+        self._bt_proxy_session = None
 
     def stop(self):
         self._stop_event.set()
+
+    def _teardown_bt_proxy_session(self):
+        if self._bt_proxy_session is None:
+            return
+        while True:
+            try:
+                self._bt_proxy_session.destroy()
+                break
+            except KeyboardInterrupt:
+                continue
+        self._bt_proxy_session = None
 
     def _emit_status(self, status):
         self.status_queue.put(status)
@@ -274,14 +289,89 @@ class HapticsEngine(threading.Thread):
         except queue.Full:
             pass
 
+    def _service_bt_proxy_idle(self, timeout):
+        """Waits up to `timeout` seconds, like _stop_event.wait() (which this
+        replaces at both call sites in run()), but does two extra things for
+        the Bluetooth HID proxy:
+
+        1. Drains the persistent clone's uhid_fd if one exists, so a
+           detached clone (real device gone - see
+           BtHidProxySession.detach()) doesn't starve and back up the
+           kernel's bounded uhid event queue from Steam's own continuing
+           writes against a clone it still thinks is present ("Output queue
+           is full" in dmesg, confirmed on real hardware).
+        2. While the proxy is enabled and not currently attached, polls for
+           the real device's sysfs path directly, on a fast ~100ms cadence,
+           and attaches (locks it down) the instant it appears - rather than
+           waiting for run()'s own find_ff_device() to succeed, which needs
+           the real device's evdev interface to finish registering with
+           FF_RUMBLE capability and lagged its hidraw registration by
+           several seconds on real hardware.
+        3. While detached, periodically replays the clone's last known
+           INPUT report (see BtHidProxySession.heartbeat_input()) instead of
+           sending nothing. Confirmed via Steam's own controller.txt log
+           that during a stable, still-attached session Steam never touches
+           its open device handle at all, but the moment relay_input()
+           traffic stops (a real disconnect) Steam's own hidraw read times
+           out ("Controller device closed after hid_read failure").
+
+        Steam's Big Picture/gamescope controller UI can still show a
+        duplicate icon with doubled inputs on a live reconnect even with
+        all of the above in place and the real device's own hidraw/evdev
+        nodes independently confirmed locked the entire time - this
+        appears to be Steam's own HIDAPI fork not tracking a stable serial
+        for a uhid-backed clone (its own log showed a blank serial_number
+        for it, despite the kernel-level HIDIOCGRAWUNIQ reporting the
+        correct value), so its device deduplication has nothing reliable
+        to key on. Not something fixable from here - see the
+        "Decky BT HID proxy dead end" memory note for the full writeup.
+        This is why the feature stays desktop-only.
+
+        Returns True if the engine was asked to stop while waiting, matching
+        _stop_event.wait()."""
+        proxy_cfg = self.config.get("bt_hid_proxy", {})
+        want_attach = (proxy_cfg.get("enabled", False)
+                       and time.monotonic() >= getattr(self, "_bt_proxy_retry_after", 0.0))
+        if want_attach and self._bt_proxy_session is None:
+            self._bt_proxy_session = bt_hid_proxy.BtHidProxySession()
+        session = self._bt_proxy_session
+        if session is None:
+            return self._stop_event.wait(timeout)
+
+        deadline = time.monotonic() + timeout
+        last_heartbeat = 0.0
+        while time.monotonic() < deadline:
+            if self._stop_event.is_set():
+                return True
+            if (want_attach and session.real_fd is None
+                    and bt_hid_proxy.find_real_hid_sys_path(require_driver_bound=False)):
+                try:
+                    session.attach()
+                except bt_hid_proxy.ProxyUnavailable:
+                    backoff = getattr(self, "_bt_proxy_backoff", 5)
+                    self._bt_proxy_retry_after = time.monotonic() + backoff
+                    self._bt_proxy_backoff = min(backoff * 2, 300)
+                return False
+            now = time.monotonic()
+            if session.real_fd is None and session.uhid_fd is not None and now - last_heartbeat > 0.15:
+                session.heartbeat_input()
+                last_heartbeat = now
+            if session.uhid_fd is not None:
+                readable, _, _ = select.select([session.uhid_fd], [], [], 0.1)
+                if readable:
+                    session.relay_output_or_get_report()
+            else:
+                self._stop_event.wait(0.1)
+        return self._stop_event.is_set()
+
     def run(self):
         while not self._stop_event.is_set():
             dev = find_ff_device()
             if dev is None:
                 self._emit_status("searching")
                 self._emit_connection(None)
-                if self._stop_event.wait(2.0):
-                    return
+                if self._service_bt_proxy_idle(2.0):
+                    break
                 continue
             try:
                 self._emit_status("connected")
@@ -296,8 +386,9 @@ class HapticsEngine(threading.Thread):
                 except Exception:
                     pass
             if self._stop_event.is_set():
-                return
-            self._stop_event.wait(1.0)
+                break
+            self._service_bt_proxy_idle(1.0)
+        self._teardown_bt_proxy_session()
 
     def _session(self, dev):
         """Dispatches to whichever haptics path applies to this connection.
@@ -307,6 +398,12 @@ class HapticsEngine(threading.Thread):
         back to the synthesized-envelope/FF_RUMBLE path."""
         kind = connection_kind(dev)
         proxy_cfg = self.config.get("bt_hid_proxy", {})
+        if not proxy_cfg.get("enabled", False):
+            # Turning the feature off is the one case that should actually
+            # remove the clone (see BtHidProxySession.destroy()) - unlike a
+            # routine disconnect, there's no future reconnect coming that
+            # would benefit from keeping it alive.
+            self._teardown_bt_proxy_session()
         now = time.monotonic()
         if (kind == "bluetooth" and proxy_cfg.get("enabled", False)
                 and now >= getattr(self, "_bt_proxy_retry_after", 0.0)):
@@ -492,7 +589,12 @@ class HapticsEngine(threading.Thread):
         stereo_fmt = f"<{chunk_samples * 2}h"
         phase_step = 2 * math.pi * BT_BUTTON_CLICK_HZ / rate
 
-        hidraw_file = open(hidraw_path, "wb", buffering=0)
+        # os.open with plain O_WRONLY (not the "wb"-mode open(), which
+        # implies O_CREAT) - never silently create a regular file if this
+        # path doesn't exist yet, which would permanently shadow the real
+        # hidraw device the kernel registers moments later. See
+        # bt_hid_proxy.find_clone_hidraw_path()'s own comment on this race.
+        hidraw_file = os.fdopen(os.open(hidraw_path, os.O_WRONLY), "wb", buffering=0)
         audio_prefix = _audio_subprocess_prefix()
         parec = subprocess.Popen(
             audio_prefix + ["parec", "-d", "@DEFAULT_SINK@.monitor", "--format=s16le",
@@ -612,10 +714,18 @@ class HapticsEngine(threading.Thread):
         confirmed on real hardware that a fixed short cooldown against a
         genuinely persistent failure (as opposed to a brief one) caused
         visible, repeated input drops - worse than just settling into the
-        fallback session quietly until something actually changes."""
-        session = bt_hid_proxy.BtHidProxySession()
+        fallback session quietly until something actually changes.
+
+        The clone itself outlives any single call to this method - see
+        self._bt_proxy_session/BtHidProxySession.attach()/detach(). Only
+        the real-device side is torn down when this connection ends;
+        Steam never sees the clone disappear and reappear on a routine
+        reconnect."""
+        if self._bt_proxy_session is None:
+            self._bt_proxy_session = bt_hid_proxy.BtHidProxySession()
+        session = self._bt_proxy_session
         try:
-            session.open()
+            session.attach()
         except bt_hid_proxy.ProxyUnavailable:
             self._emit_status("bt_proxy_unavailable")
             backoff = getattr(self, "_bt_proxy_backoff", 5)
@@ -635,12 +745,7 @@ class HapticsEngine(threading.Thread):
             else:
                 self._run_bt_proxy_envelope(session, dev)
         finally:
-            while True:
-                try:
-                    session.close()
-                    break
-                except KeyboardInterrupt:
-                    continue
+            session.detach()
 
     def _run_bt_proxy_envelope(self, session, dev):
         """Synthesized-envelope rumble through the proxy - structurally a
@@ -766,7 +871,7 @@ class HapticsEngine(threading.Thread):
         stereo_fmt = f"<{chunk_samples * 2}h"
         phase_step = 2 * math.pi * BT_BUTTON_CLICK_HZ / rate
 
-        hidraw_file = open(clone_hidraw, "wb", buffering=0)
+        hidraw_file = os.fdopen(os.open(clone_hidraw, os.O_WRONLY), "wb", buffering=0)
         audio_prefix = _audio_subprocess_prefix()
         parec = subprocess.Popen(
             audio_prefix + ["parec", "-d", "@DEFAULT_SINK@.monitor", "--format=s16le",

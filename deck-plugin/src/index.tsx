@@ -27,10 +27,6 @@ interface DirectAudio {
   bt_enabled: boolean;
 }
 
-interface BtHidProxy {
-  enabled: boolean;
-}
-
 interface CustomTrigger {
   mode: string;
   values: Record<string, number>;
@@ -81,9 +77,6 @@ const applyCustomTrigger = callable<[mode: string, values: Record<string, number
 const getDirectAudio = callable<[], DirectAudio>("get_direct_audio");
 const setDirectAudioEnabled = callable<[value: boolean], boolean>("set_direct_audio_enabled");
 const setDirectAudioBtEnabled = callable<[value: boolean], boolean>("set_direct_audio_bt_enabled");
-
-const getBtHidProxy = callable<[], BtHidProxy>("get_bt_hid_proxy");
-const setBtHidProxyEnabled = callable<[value: boolean], boolean>("set_bt_hid_proxy_enabled");
 
 const getLanguage = callable<[], string>("get_language");
 const setLanguage = callable<[code: string], boolean>("set_language");
@@ -230,8 +223,6 @@ function MainSection({ t }: { t: (key: string) => string }) {
     status === "connected" ? t("status_connected")
     : status === "searching" ? t("status_searching")
     : status === "overridden" ? t("status_overridden")
-    : status === "proxied" ? t("status_proxied")
-    : status === "bt_proxy_unavailable" ? t("status_bt_proxy_unavailable")
     : status ?? "—";
 
   return (
@@ -420,30 +411,6 @@ function DirectAudioSection({ t }: { t: (key: string) => string }) {
   );
 }
 
-function BtHidProxySection({ t }: { t: (key: string) => string }) {
-  const [proxy, setProxyState] = useState<BtHidProxy>({ enabled: false });
-
-  useEffect(() => {
-    (async () => setProxyState(await getBtHidProxy()))();
-  }, []);
-
-  const onToggle = async (value: boolean) => {
-    setProxyState((p) => ({ ...p, enabled: value }));
-    await setBtHidProxyEnabled(value);
-  };
-
-  return (
-    <PanelSection title={t("group_bt_proxy")}>
-      <PanelSectionRow>
-        <ToggleField label={t("bt_proxy_checkbox")} checked={proxy.enabled} onChange={onToggle} />
-      </PanelSectionRow>
-      <PanelSectionRow>
-        <span style={{ fontSize: "0.85em", opacity: 0.75 }}>{t("bt_proxy_hint")}</span>
-      </PanelSectionRow>
-    </PanelSection>
-  );
-}
-
 function GameProfilesSection({ t }: { t: (key: string) => string }) {
   const [mappings, setMappings] = useState<GameProfiles>({});
   const [runningApp, setRunningApp] = useState<{ appid: string; name: string } | null>(null);
@@ -545,7 +512,6 @@ function Root() {
       <CustomTriggerCard side="left" label={t("trigger_left_title")} t={t} />
       <CustomTriggerCard side="right" label={t("trigger_right_title")} t={t} />
       <DirectAudioSection t={t} />
-      <BtHidProxySection t={t} />
       <SettingsSection lang={lang} onLangChange={onLangChange} t={t} />
     </>
   );

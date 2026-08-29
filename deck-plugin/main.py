@@ -100,6 +100,17 @@ def _write_config(raw):
         json.dump(raw, f, indent=2, ensure_ascii=False)
 
 
+def _get_engine_enabled():
+    raw = _read_config() or {}
+    return raw.get("engine_enabled", False)
+
+
+def _set_engine_enabled(value):
+    raw = _read_config() or {}
+    raw["engine_enabled"] = value
+    _write_config(raw)
+
+
 def _build_custom_args(mode, values):
     """Duplicated from triggers.py (not importable here - see module
     docstring): "end"-style params must exceed their paired "start" param or
@@ -123,10 +134,30 @@ class Plugin:
         self.proc = None
         _kill_stale_headless_runner()
         bt_hid_proxy.recover_stale_lock()
+        # Otherwise the engine only ever runs from a fresh, explicit toggle
+        # click each time the plugin (re)loads - if bt_hid_proxy is also
+        # enabled, that leaves a window (until the user gets to the toggle)
+        # where the real device sits at its normal, unlocked permissions
+        # for Steam to discover on its own before we ever hide it behind
+        # the clone - confirmed on real hardware to produce exactly the
+        # duplicate-controller-icon bug this proxy exists to avoid.
+        if _get_engine_enabled():
+            await self.start_engine()
         decky.logger.info("DualSense Haptics (Deck) loaded")
 
     async def _unload(self):
-        await self.stop_engine()
+        # Deliberately not stop_engine(): this fires on every plugin
+        # reload/service restart, not just a user turning vibration off,
+        # and stop_engine() persists engine_enabled=False - confirmed on
+        # real hardware that this made the auto-start added above
+        # self-defeating, clearing the flag on every single restart before
+        # the next _main() could ever see it set. The child process itself
+        # doesn't need killing here either: _kill_stale_headless_runner()
+        # (called at the top of both _main() and start_engine()) already
+        # cleans up whatever this leaves behind via the pid file, the same
+        # path that already handles a plugin_loader restart never
+        # SIGTERM-ing an already-spawned child in the first place.
+        self.proc = None
         decky.logger.info("DualSense Haptics (Deck) unloaded")
 
     async def start_engine(self) -> bool:
@@ -154,6 +185,7 @@ class Plugin:
                 ["/usr/bin/python3", RUNNER_PATH, decky.DECKY_PLUGIN_RUNTIME_DIR],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env,
             )
+        _set_engine_enabled(True)
         return True
 
     async def stop_engine(self) -> bool:
@@ -164,6 +196,7 @@ class Plugin:
             except subprocess.TimeoutExpired:
                 self.proc.kill()
             self.proc = None
+        _set_engine_enabled(False)
         return True
 
     async def is_running(self) -> bool:
@@ -329,16 +362,6 @@ class Plugin:
     async def set_direct_audio_bt_enabled(self, value: bool) -> bool:
         raw = _read_config() or {}
         raw.setdefault("active", {}).setdefault("direct_audio", {})["bt_enabled"] = value
-        _write_config(raw)
-        return True
-
-    async def get_bt_hid_proxy(self) -> dict:
-        raw = _read_config() or {}
-        return raw.get("active", {}).get("bt_hid_proxy", {"enabled": False})
-
-    async def set_bt_hid_proxy_enabled(self, value: bool) -> bool:
-        raw = _read_config() or {}
-        raw.setdefault("active", {}).setdefault("bt_hid_proxy", {})["enabled"] = value
         _write_config(raw)
         return True
 
