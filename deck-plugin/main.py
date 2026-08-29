@@ -14,8 +14,11 @@ imported directly and safely.
 """
 import json
 import os
+import pwd
+import signal
 import subprocess
 import sys
+import time
 
 import decky
 
@@ -30,6 +33,49 @@ CONFIG_FILE = os.path.join(decky.DECKY_PLUGIN_SETTINGS_DIR, "dualsense-haptics",
 sys.path.insert(0, PY_MODULES_DIR)
 import presets  # noqa: E402 - pure Python, no evdev dependency, safe here
 import bt_hid_proxy  # noqa: E402 - pure Python (no evdev dependency), safe here too
+
+
+def _kill_stale_headless_runner():
+    """Decky can stop/restart plugin_loader, or reload just this plugin,
+    without ever SIGTERM-ing an already-spawned headless_runner.py child -
+    confirmed on real hardware that the orphan survives indefinitely,
+    reparented to init, still holding the controller (locked real device,
+    live uhid clone) and fighting any fresh session for it. Called at
+    plugin load and before every start_engine(), since a fresh main.py
+    process's own self.proc is always None regardless of what an earlier
+    incarnation left running. Verifies the PID via /proc/<pid>/cmdline
+    before touching it, in case the PID has since been reused by something
+    unrelated."""
+    pid_file = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "headless_runner.pid")
+    try:
+        with open(pid_file) as f:
+            pid = int(f.read().strip())
+    except (OSError, ValueError):
+        return
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            cmdline = f.read()
+    except OSError:
+        cmdline = b""
+    if b"headless_runner.py" in cmdline:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+        else:
+            for _ in range(20):
+                time.sleep(0.1)
+                if not os.path.exists(f"/proc/{pid}"):
+                    break
+            else:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
+    try:
+        os.remove(pid_file)
+    except OSError:
+        pass
 
 
 def _dualsensectl_prefix():
@@ -75,6 +121,7 @@ def _build_custom_args(mode, values):
 class Plugin:
     async def _main(self):
         self.proc = None
+        _kill_stale_headless_runner()
         bt_hid_proxy.recover_stale_lock()
         decky.logger.info("DualSense Haptics (Deck) loaded")
 
@@ -84,12 +131,25 @@ class Plugin:
 
     async def start_engine(self) -> bool:
         if self.proc is None or self.proc.poll() is not None:
+            _kill_stale_headless_runner()
             os.makedirs(decky.DECKY_PLUGIN_RUNTIME_DIR, exist_ok=True)
             env = dict(os.environ)
             # Decky's plugin process doesn't inherit a desktop session
             # environment, so parec/paplay/pactl (PipeWire/PulseAudio
             # clients) can't otherwise find the user's audio server socket.
-            env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+            # With the "root" manifest flag (needed for /dev/uhid access -
+            # see bt_hid_proxy.py) this process's own os.getuid() is 0, not
+            # the desktop user's - decky.DECKY_USER is the actual logged-in
+            # user regardless of which UID we're running as. Passed through
+            # so haptics_engine.py's own parec/paplay calls (run from the
+            # headless_runner.py child spawned below) know who to run as
+            # too - PipeWire refuses a root client outright.
+            try:
+                target_uid = pwd.getpwnam(decky.DECKY_USER).pw_uid
+            except KeyError:
+                target_uid = os.getuid()
+            env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{target_uid}")
+            env["DUALSENSE_AUDIO_USER"] = decky.DECKY_USER
             self.proc = subprocess.Popen(
                 ["/usr/bin/python3", RUNNER_PATH, decky.DECKY_PLUGIN_RUNTIME_DIR],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env,
@@ -181,6 +241,41 @@ class Plugin:
             if band in profile:
                 active[band] = profile[band]
         raw["active_ref"] = f"profile:{name}"
+        _write_config(raw)
+        return True
+
+    async def get_active_ref(self) -> str:
+        raw = _read_config() or {}
+        return raw.get("active_ref", "custom")
+
+    async def apply_ref(self, ref: str) -> bool:
+        """Dispatches a raw active_ref string ("preset:x" / "profile:x") to
+        the matching apply_* method - used by the frontend's Steam
+        GameSessions hook (see game_profiles below) so it doesn't need to
+        parse the ref format itself."""
+        if ref.startswith("preset:"):
+            return await self.apply_preset(ref.split(":", 1)[1])
+        if ref.startswith("profile:"):
+            return await self.apply_profile(ref.split(":", 1)[1])
+        return False
+
+    async def get_game_profiles(self) -> dict:
+        """{app_id (str): {"name": display name, "ref": active_ref string}} -
+        which saved settings to auto-apply when a given Steam game launches.
+        Deck-only: there's normally exactly one foreground app on a Deck, so
+        this doesn't need the desktop's per-audio-source disambiguation."""
+        raw = _read_config() or {}
+        return raw.get("game_profiles", {})
+
+    async def set_game_profile(self, app_id: str, name: str, ref: str) -> bool:
+        raw = _read_config() or {}
+        raw.setdefault("game_profiles", {})[app_id] = {"name": name, "ref": ref}
+        _write_config(raw)
+        return True
+
+    async def clear_game_profile(self, app_id: str) -> bool:
+        raw = _read_config() or {}
+        raw.get("game_profiles", {}).pop(app_id, None)
         _write_config(raw)
         return True
 

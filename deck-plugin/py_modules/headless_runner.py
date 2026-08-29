@@ -25,8 +25,19 @@ import bt_hid_proxy  # noqa: E402
 def main():
     runtime_dir = sys.argv[1]
     status_file = os.path.join(runtime_dir, "status.json")
+    pid_file = os.path.join(runtime_dir, "headless_runner.pid")
 
     bt_hid_proxy.recover_stale_lock()
+
+    # Decky's plugin_loader can be stopped/restarted (or the plugin
+    # reloaded) without ever SIGTERM-ing this already-spawned child -
+    # confirmed on real hardware that the orphan survives indefinitely,
+    # reparented to init, still holding the controller. main.py checks this
+    # same PID file at every plugin load and start_engine() call and kills
+    # whatever it finds there before spawning a fresh instance (see
+    # _kill_stale_headless_runner() there); this just keeps it current.
+    with open(pid_file, "w") as f:
+        f.write(str(os.getpid()))
 
     state = load_state()
     engine = HapticsEngine(state["active"])
@@ -47,8 +58,19 @@ def main():
                 if mtime != last_mtime:
                     last_mtime = mtime
                     fresh = load_state()
-                    state["active"].clear()
+                    # HapticsEngine holds a reference to this exact dict
+                    # object (not a copy), and its own thread reads from it
+                    # concurrently on every audio tick - update() first so
+                    # the dict is never momentarily missing a key (e.g.
+                    # bt_hid_proxy), which a concurrent read could otherwise
+                    # catch mid-reload and misread as "disabled", aborting a
+                    # live proxy session. clear()-then-update() had exactly
+                    # that window; confirmed on real hardware that applying a
+                    # game profile mid-session could trip it.
+                    stale_keys = state["active"].keys() - fresh["active"].keys()
                     state["active"].update(fresh["active"])
+                    for key in stale_keys:
+                        del state["active"][key]
             except OSError:
                 pass
 
@@ -78,6 +100,10 @@ def main():
     finally:
         engine.stop()
         engine.join(timeout=2)
+        try:
+            os.remove(pid_file)
+        except OSError:
+            pass
 
 
 if __name__ == "__main__":

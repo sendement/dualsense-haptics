@@ -5,6 +5,7 @@ import {
   SliderField,
   DropdownItem,
   ButtonItem,
+  Router,
   staticClasses,
 } from "@decky/ui";
 import { callable, definePlugin } from "@decky/api";
@@ -35,6 +36,19 @@ interface CustomTrigger {
   values: Record<string, number>;
 }
 
+interface GameProfileEntry {
+  name: string;
+  ref: string;
+}
+
+type GameProfiles = Record<string, GameProfileEntry>;
+
+// Mutable module-level cache, not React state: the Steam GameSessions hook
+// below is registered once at plugin load (outside any component's
+// lifecycle) and reads this on every app-launch event, so it needs to see
+// whatever GameProfilesSection last wrote, not a stale closure snapshot.
+let gameProfilesCache: GameProfiles = {};
+
 const startEngine = callable<[], boolean>("start_engine");
 const stopEngine = callable<[], boolean>("stop_engine");
 const isRunning = callable<[], boolean>("is_running");
@@ -48,6 +62,12 @@ const setGain = callable<[value: number], boolean>("set_gain");
 const listProfiles = callable<[], string[]>("list_profiles");
 const getActiveProfile = callable<[], string | null>("get_active_profile");
 const applyProfile = callable<[name: string], boolean>("apply_profile");
+
+const getActiveRef = callable<[], string>("get_active_ref");
+const applyRef = callable<[ref: string], boolean>("apply_ref");
+const getGameProfiles = callable<[], GameProfiles>("get_game_profiles");
+const setGameProfile = callable<[app_id: string, name: string, ref: string], boolean>("set_game_profile");
+const clearGameProfile = callable<[app_id: string], boolean>("clear_game_profile");
 
 const listTriggerPresets = callable<[], string[]>("list_trigger_presets");
 const getTriggerPreset = callable<[side: string], string | null>("get_trigger_preset");
@@ -424,6 +444,70 @@ function BtHidProxySection({ t }: { t: (key: string) => string }) {
   );
 }
 
+function GameProfilesSection({ t }: { t: (key: string) => string }) {
+  const [mappings, setMappings] = useState<GameProfiles>({});
+  const [runningApp, setRunningApp] = useState<{ appid: string; name: string } | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      gameProfilesCache = await getGameProfiles();
+      setMappings(gameProfilesCache);
+    })();
+
+    const interval = setInterval(() => {
+      const app = Router.MainRunningApp;
+      setRunningApp(app ? { appid: app.appid, name: app.display_name } : null);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const onLink = async () => {
+    if (!runningApp) return;
+    const ref = await getActiveRef();
+    await setGameProfile(runningApp.appid, runningApp.name, ref);
+    gameProfilesCache = { ...gameProfilesCache, [runningApp.appid]: { name: runningApp.name, ref } };
+    setMappings(gameProfilesCache);
+  };
+
+  const onUnlink = async (appId: string) => {
+    await clearGameProfile(appId);
+    const next = { ...gameProfilesCache };
+    delete next[appId];
+    gameProfilesCache = next;
+    setMappings(next);
+  };
+
+  const entries = Object.entries(mappings);
+
+  return (
+    <PanelSection title={t("game_profiles_title")}>
+      {runningApp && (
+        <PanelSectionRow>
+          <ButtonItem layout="below" onClick={onLink}>
+            {t("game_profiles_link_button")} · {runningApp.name}
+          </ButtonItem>
+        </PanelSectionRow>
+      )}
+      {entries.length === 0 ? (
+        <PanelSectionRow>
+          <span style={{ fontSize: "0.85em", opacity: 0.75 }}>{t("game_profiles_empty")}</span>
+        </PanelSectionRow>
+      ) : (
+        entries.map(([appId, entry]) => (
+          <PanelSectionRow key={appId}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>{entry.name}</span>
+              <ButtonItem layout="below" onClick={() => onUnlink(appId)}>
+                {t("game_profiles_unlink")}
+              </ButtonItem>
+            </div>
+          </PanelSectionRow>
+        ))
+      )}
+    </PanelSection>
+  );
+}
+
 function SettingsSection({ lang, onLangChange, t }: { lang: string; onLangChange: (code: string) => void; t: (key: string) => string }) {
   return (
     <PanelSection title={t("group_language")}>
@@ -456,6 +540,7 @@ function Root() {
   return (
     <>
       <MainSection t={t} />
+      <GameProfilesSection t={t} />
       <TriggersSection t={t} />
       <CustomTriggerCard side="left" label={t("trigger_left_title")} t={t} />
       <CustomTriggerCard side="right" label={t("trigger_right_title")} t={t} />
@@ -467,11 +552,27 @@ function Root() {
 }
 
 export default definePlugin(() => {
+  (async () => {
+    gameProfilesCache = await getGameProfiles();
+  })();
+
+  // Registered once, outside any component's lifecycle, since a Steam game
+  // can launch while the QAM panel (and GameProfilesSection) isn't even
+  // mounted - reads gameProfilesCache (kept current by GameProfilesSection)
+  // rather than a value captured at registration time.
+  const lifetimeReg = SteamClient.GameSessions.RegisterForAppLifetimeNotifications((notification) => {
+    if (!notification.bRunning) return;
+    const entry = gameProfilesCache[String(notification.unAppID)];
+    if (entry) applyRef(entry.ref);
+  });
+
   return {
     name: "DualSense Haptics",
     titleView: <div className={staticClasses.Title}>DualSense Haptics</div>,
     content: <Root />,
     icon: <FaGamepad />,
-    onDismount() {},
+    onDismount() {
+      lifetimeReg.unregister();
+    },
   };
 });

@@ -102,6 +102,10 @@ const STRINGS = {
         "direct_audio_checkbox": "Play audio straight through the motors",
         "direct_audio_bt_checkbox": "Enable over Bluetooth (experimental)",
         "group_bt_proxy": "Trigger + Vibration Mix (Bluetooth, experimental)",
+        "game_profiles_title": "Game Profiles",
+        "game_profiles_link_button": "Link current settings to",
+        "game_profiles_empty": "No games linked yet - launch a game and tap the button above.",
+        "game_profiles_unlink": "Unlink",
         "bt_proxy_hint": "Fixes Steam silently swallowing vibration in games with native adaptive-trigger support: clones the controller and merges Steam's trigger/lightbar writes with this app's own audio-reactive rumble, instead of the two fighting over the same device.",
         "bt_proxy_checkbox": "Enable trigger + vibration mix (experimental)",
         "label_direct_gain": "Strength",
@@ -163,6 +167,10 @@ const STRINGS = {
         "direct_audio_checkbox": "Играть звук напрямую через моторы",
         "direct_audio_bt_checkbox": "Включить по Bluetooth (экспериментально)",
         "group_bt_proxy": "Микс триггеров и вибрации (Bluetooth, экспериментально)",
+        "game_profiles_title": "Профили под игры",
+        "game_profiles_link_button": "Привязать текущие настройки к",
+        "game_profiles_empty": "Пока ничего не привязано — запусти игру и нажми кнопку выше.",
+        "game_profiles_unlink": "Отвязать",
         "bt_proxy_hint": "Решает проблему, когда Steam незаметно глушит вибрацию в играх с поддержкой адаптивных триггеров: клонирует контроллер и смешивает записи Steam (триггеры/подсветку) с собственной аудио-реактивной вибрацией приложения, вместо того чтобы они боролись за одно устройство.",
         "bt_proxy_checkbox": "Включить микс триггеров и вибрации (экспериментально)",
         "label_direct_gain": "Сила",
@@ -224,6 +232,10 @@ const STRINGS = {
         "direct_audio_checkbox": "直接通过马达播放音频",
         "direct_audio_bt_checkbox": "通过蓝牙启用（实验性）",
         "group_bt_proxy": "扳机+震动混合（蓝牙，实验性）",
+        "game_profiles_title": "游戏配置",
+        "game_profiles_link_button": "将当前设置关联到",
+        "game_profiles_empty": "还没有关联任何游戏——启动一个游戏，然后点击上面的按钮。",
+        "game_profiles_unlink": "取消关联",
         "bt_proxy_hint": "解决 Steam 在支持原生自适应扳机的游戏中悄悄吞掉震动的问题：克隆手柄，并将 Steam 写入的扳机/灯效数据与本应用自身的音频反应震动合并，而不是两者争抢同一设备。",
         "bt_proxy_checkbox": "启用扳机+震动混合（实验性）",
         "label_direct_gain": "强度",
@@ -285,6 +297,10 @@ const STRINGS = {
         "direct_audio_checkbox": "Reproducir audio directamente en los motores",
         "direct_audio_bt_checkbox": "Activar por Bluetooth (experimental)",
         "group_bt_proxy": "Mezcla de gatillo y vibración (Bluetooth, experimental)",
+        "game_profiles_title": "Perfiles de juego",
+        "game_profiles_link_button": "Vincular ajustes actuales a",
+        "game_profiles_empty": "Aún no hay juegos vinculados: inicia un juego y toca el botón de arriba.",
+        "game_profiles_unlink": "Desvincular",
         "bt_proxy_hint": "Soluciona que Steam silencie la vibración en juegos con soporte nativo de gatillos adaptativos: clona el mando y combina lo que Steam escribe (gatillos/luz) con la vibración propia de la app basada en el audio, en lugar de que ambos compitan por el mismo dispositivo.",
         "bt_proxy_checkbox": "Activar mezcla de gatillo + vibración (experimental)",
         "label_direct_gain": "Intensidad",
@@ -346,6 +362,10 @@ const STRINGS = {
         "direct_audio_checkbox": "Audio direkt über die Motoren abspielen",
         "direct_audio_bt_checkbox": "Über Bluetooth aktivieren (experimentell)",
         "group_bt_proxy": "Trigger- und Vibrations-Mix (Bluetooth, experimentell)",
+        "game_profiles_title": "Spielprofile",
+        "game_profiles_link_button": "Aktuelle Einstellungen verknüpfen mit",
+        "game_profiles_empty": "Noch keine Spiele verknüpft – starte ein Spiel und tippe oben auf die Schaltfläche.",
+        "game_profiles_unlink": "Verknüpfung aufheben",
         "bt_proxy_hint": "Behebt, dass Steam die Vibration in Spielen mit nativer Unterstützung für adaptive Trigger stillschweigend verschluckt: klont den Controller und mischt Steams Trigger-/Lightbar-Schreibvorgänge mit der eigenen audioreaktiven Vibration der App, statt dass beide um dasselbe Gerät konkurrieren.",
         "bt_proxy_checkbox": "Trigger- + Vibrations-Mix aktivieren (experimentell)",
         "label_direct_gain": "Stärke",
@@ -407,6 +427,10 @@ const STRINGS = {
         "direct_audio_checkbox": "Jouer l'audio directement sur les moteurs",
         "direct_audio_bt_checkbox": "Activer par Bluetooth (expérimental)",
         "group_bt_proxy": "Mixage gâchette et vibration (Bluetooth, expérimental)",
+        "game_profiles_title": "Profils de jeu",
+        "game_profiles_link_button": "Associer les réglages actuels à",
+        "game_profiles_empty": "Aucun jeu associé pour l'instant - lance un jeu et appuie sur le bouton ci-dessus.",
+        "game_profiles_unlink": "Dissocier",
         "bt_proxy_hint": "Corrige le fait que Steam avale silencieusement la vibration dans les jeux avec prise en charge native des gâchettes adaptatives : clone la manette et mélange ce que Steam écrit (gâchettes/rétroéclairage) avec la vibration réactive à l'audio de l'application, au lieu que les deux se disputent le même périphérique.",
         "bt_proxy_checkbox": "Activer le mixage gâchette + vibration (expérimental)",
         "label_direct_gain": "Intensité",
@@ -468,6 +492,10 @@ const STRINGS = {
         "direct_audio_checkbox": "音声をモーターに直接再生する",
         "direct_audio_bt_checkbox": "Bluetoothで有効にする（実験的機能）",
         "group_bt_proxy": "トリガー+振動ミックス（Bluetooth、実験的機能）",
+        "game_profiles_title": "ゲームプロファイル",
+        "game_profiles_link_button": "現在の設定をリンク:",
+        "game_profiles_empty": "まだゲームがリンクされていません。ゲームを起動して上のボタンを押してください。",
+        "game_profiles_unlink": "リンク解除",
         "bt_proxy_hint": "ネイティブのアダプティブトリガー対応ゲームでSteamが振動を静かに無効化してしまう問題を解決します。コントローラーを複製し、Steamが書き込むトリガー/ライトバーの内容と本アプリ自身のオーディオ反応振動を統合します（同じデバイスを奪い合う代わりに）。",
         "bt_proxy_checkbox": "トリガー+振動ミックスを有効にする（実験的機能）",
         "label_direct_gain": "強さ",
@@ -529,6 +557,10 @@ const STRINGS = {
         "direct_audio_checkbox": "Reproduzir áudio diretamente nos motores",
         "direct_audio_bt_checkbox": "Ativar via Bluetooth (experimental)",
         "group_bt_proxy": "Mix de gatilho e vibração (Bluetooth, experimental)",
+        "game_profiles_title": "Perfis de jogo",
+        "game_profiles_link_button": "Vincular configurações atuais a",
+        "game_profiles_empty": "Nenhum jogo vinculado ainda - inicie um jogo e toque no botão acima.",
+        "game_profiles_unlink": "Desvincular",
         "bt_proxy_hint": "Corrige o Steam silenciosamente engolindo a vibração em jogos com suporte nativo a gatilhos adaptativos: clona o controle e combina o que o Steam escreve (gatilhos/luz) com a vibração reativa ao áudio do próprio app, em vez de os dois disputarem o mesmo dispositivo.",
         "bt_proxy_checkbox": "Ativar mix de gatilho + vibração (experimental)",
         "label_direct_gain": "Intensidade",
@@ -590,6 +622,10 @@ const STRINGS = {
         "direct_audio_checkbox": "오디오를 모터로 직접 재생",
         "direct_audio_bt_checkbox": "블루투스로 활성화 (실험적)",
         "group_bt_proxy": "트리거+진동 믹스 (블루투스, 실험적)",
+        "game_profiles_title": "게임 프로필",
+        "game_profiles_link_button": "현재 설정을 다음에 연결:",
+        "game_profiles_empty": "아직 연결된 게임이 없습니다 - 게임을 실행하고 위 버튼을 누르세요.",
+        "game_profiles_unlink": "연결 해제",
         "bt_proxy_hint": "네이티브 어댑티브 트리거를 지원하는 게임에서 Steam이 진동을 조용히 삼켜버리는 문제를 해결합니다. 컨트롤러를 복제하여 Steam이 기록하는 트리거/조명 데이터를 앱 자체의 오디오 반응 진동과 병합합니다 (같은 장치를 두고 경쟁하는 대신).",
         "bt_proxy_checkbox": "트리거 + 진동 믹스 활성화 (실험적)",
         "label_direct_gain": "강도",
@@ -641,6 +677,11 @@ function t(lang, key) {
     return STRINGS[lang]?.[key] ?? STRINGS.en[key] ?? key;
 }
 
+// Mutable module-level cache, not React state: the Steam GameSessions hook
+// below is registered once at plugin load (outside any component's
+// lifecycle) and reads this on every app-launch event, so it needs to see
+// whatever GameProfilesSection last wrote, not a stale closure snapshot.
+let gameProfilesCache = {};
 const startEngine = callable("start_engine");
 const stopEngine = callable("stop_engine");
 const isRunning = callable("is_running");
@@ -653,6 +694,11 @@ const setGain = callable("set_gain");
 const listProfiles = callable("list_profiles");
 const getActiveProfile = callable("get_active_profile");
 const applyProfile = callable("apply_profile");
+const getActiveRef = callable("get_active_ref");
+const applyRef = callable("apply_ref");
+const getGameProfiles = callable("get_game_profiles");
+const setGameProfile = callable("set_game_profile");
+const clearGameProfile = callable("clear_game_profile");
 const listTriggerPresets = callable("list_trigger_presets");
 const getTriggerPreset = callable("get_trigger_preset");
 const applyTriggerPreset = callable("apply_trigger_preset");
@@ -895,6 +941,38 @@ function BtHidProxySection({ t }) {
     };
     return (SP_JSX.jsxs(DFL.PanelSection, { title: t("group_bt_proxy"), children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: t("bt_proxy_checkbox"), checked: proxy.enabled, onChange: onToggle }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("span", { style: { fontSize: "0.85em", opacity: 0.75 }, children: t("bt_proxy_hint") }) })] }));
 }
+function GameProfilesSection({ t }) {
+    const [mappings, setMappings] = SP_REACT.useState({});
+    const [runningApp, setRunningApp] = SP_REACT.useState(null);
+    SP_REACT.useEffect(() => {
+        (async () => {
+            gameProfilesCache = await getGameProfiles();
+            setMappings(gameProfilesCache);
+        })();
+        const interval = setInterval(() => {
+            const app = DFL.Router.MainRunningApp;
+            setRunningApp(app ? { appid: app.appid, name: app.display_name } : null);
+        }, 2000);
+        return () => clearInterval(interval);
+    }, []);
+    const onLink = async () => {
+        if (!runningApp)
+            return;
+        const ref = await getActiveRef();
+        await setGameProfile(runningApp.appid, runningApp.name, ref);
+        gameProfilesCache = { ...gameProfilesCache, [runningApp.appid]: { name: runningApp.name, ref } };
+        setMappings(gameProfilesCache);
+    };
+    const onUnlink = async (appId) => {
+        await clearGameProfile(appId);
+        const next = { ...gameProfilesCache };
+        delete next[appId];
+        gameProfilesCache = next;
+        setMappings(next);
+    };
+    const entries = Object.entries(mappings);
+    return (SP_JSX.jsxs(DFL.PanelSection, { title: t("game_profiles_title"), children: [runningApp && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", onClick: onLink, children: [t("game_profiles_link_button"), " \u00B7 ", runningApp.name] }) })), entries.length === 0 ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("span", { style: { fontSize: "0.85em", opacity: 0.75 }, children: t("game_profiles_empty") }) })) : (entries.map(([appId, entry]) => (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" }, children: [SP_JSX.jsx("span", { children: entry.name }), SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: () => onUnlink(appId), children: t("game_profiles_unlink") })] }) }, appId))))] }));
+}
 function SettingsSection({ lang, onLangChange, t }) {
     return (SP_JSX.jsx(DFL.PanelSection, { title: t("group_language"), children: SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.DropdownItem, { label: t("group_language"), rgOptions: LANGUAGES.map(([code, name]) => ({ data: code, label: name })), selectedOption: lang, onChange: (option) => onLangChange(option.data) }) }) }));
 }
@@ -908,15 +986,31 @@ function Root() {
         setLang(code);
         await setLanguage(code);
     };
-    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(MainSection, { t: t$1 }), SP_JSX.jsx(TriggersSection, { t: t$1 }), SP_JSX.jsx(CustomTriggerCard, { side: "left", label: t$1("trigger_left_title"), t: t$1 }), SP_JSX.jsx(CustomTriggerCard, { side: "right", label: t$1("trigger_right_title"), t: t$1 }), SP_JSX.jsx(DirectAudioSection, { t: t$1 }), SP_JSX.jsx(BtHidProxySection, { t: t$1 }), SP_JSX.jsx(SettingsSection, { lang: lang, onLangChange: onLangChange, t: t$1 })] }));
+    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(MainSection, { t: t$1 }), SP_JSX.jsx(GameProfilesSection, { t: t$1 }), SP_JSX.jsx(TriggersSection, { t: t$1 }), SP_JSX.jsx(CustomTriggerCard, { side: "left", label: t$1("trigger_left_title"), t: t$1 }), SP_JSX.jsx(CustomTriggerCard, { side: "right", label: t$1("trigger_right_title"), t: t$1 }), SP_JSX.jsx(DirectAudioSection, { t: t$1 }), SP_JSX.jsx(BtHidProxySection, { t: t$1 }), SP_JSX.jsx(SettingsSection, { lang: lang, onLangChange: onLangChange, t: t$1 })] }));
 }
 var index = definePlugin(() => {
+    (async () => {
+        gameProfilesCache = await getGameProfiles();
+    })();
+    // Registered once, outside any component's lifecycle, since a Steam game
+    // can launch while the QAM panel (and GameProfilesSection) isn't even
+    // mounted - reads gameProfilesCache (kept current by GameProfilesSection)
+    // rather than a value captured at registration time.
+    const lifetimeReg = SteamClient.GameSessions.RegisterForAppLifetimeNotifications((notification) => {
+        if (!notification.bRunning)
+            return;
+        const entry = gameProfilesCache[String(notification.unAppID)];
+        if (entry)
+            applyRef(entry.ref);
+    });
     return {
         name: "DualSense Haptics",
         titleView: SP_JSX.jsx("div", { className: DFL.staticClasses.Title, children: "DualSense Haptics" }),
         content: SP_JSX.jsx(Root, {}),
         icon: SP_JSX.jsx(FaGamepad, {}),
-        onDismount() { },
+        onDismount() {
+            lifetimeReg.unregister();
+        },
     };
 });
 

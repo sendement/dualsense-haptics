@@ -375,7 +375,19 @@ class BtHidProxySession:
         self.last_steam_report = bytearray(DEFAULT_OUTPUT_REPORT)
 
     def open(self):
-        sys_path = find_real_hid_sys_path()
+        # A few short retries: launching a game can make Steam Input
+        # briefly renegotiate the controller's connection, during which the
+        # real hid instance's sysfs path can transiently disappear for well
+        # under a second - confirmed on real hardware that a single missed
+        # lookup right at that moment was enough to trip ProxyUnavailable's
+        # 30s fallback cooldown for something that had already resolved
+        # itself a moment later.
+        sys_path = None
+        for _ in range(5):
+            sys_path = find_real_hid_sys_path()
+            if sys_path:
+                break
+            time.sleep(0.2)
         if not sys_path:
             raise ProxyUnavailable("real DualSense hid instance not found")
         nodes = real_device_nodes(sys_path)

@@ -11,6 +11,8 @@ locking is needed - worst case one 20ms frame uses a slightly stale value).
 """
 import glob
 import math
+import os
+import pwd
 import queue
 import re
 import select
@@ -103,6 +105,31 @@ BUTTON_SIDE[DPAD_VIRTUAL_CODE] = "strong"
 # device table, which recognizes the same two IDs).
 SONY_VENDOR_ID = 0x054C
 DUALSENSE_PRODUCT_IDS = {0x0CE6, 0x0DF2}  # DualSense, DualSense Edge
+
+
+def _audio_subprocess_prefix():
+    """Argv prefix needed to run parec/paplay when this process itself is
+    running as root - which only happens for the Decky plugin backend, and
+    only once it opts into Decky's "root" manifest flag (needed for
+    /dev/uhid access - see bt_hid_proxy.py). PipeWire/PulseAudio's client
+    library refuses a root connection to a non-root user's runtime dir
+    outright ("XDG_RUNTIME_DIR is not owned by us (uid 0)... Don't do
+    that."), regardless of the env var being set correctly - confirmed
+    empirically. The desktop app is never root, so this is always a no-op
+    there. DUALSENSE_AUDIO_USER is set by deck-plugin/main.py from
+    decky.DECKY_USER (the actual logged-in desktop user, not whatever this
+    already-root process's own uid says) and inherited down through
+    headless_runner.py's subprocess environment."""
+    if os.geteuid() != 0:
+        return []
+    user = os.environ.get("DUALSENSE_AUDIO_USER")
+    if not user:
+        return []
+    try:
+        uid = pwd.getpwnam(user).pw_uid
+    except KeyError:
+        return []
+    return ["sudo", "-u", user, "env", f"XDG_RUNTIME_DIR=/run/user/{uid}"]
 
 
 def find_ff_device():
@@ -287,6 +314,23 @@ class HapticsEngine(threading.Thread):
             return
         self._session_fallback(dev, kind)
 
+    def _bt_proxy_should_retry(self, kind):
+        """True once it's worth breaking out of a fallback session (BT
+        direct-audio/SAxense or plain FF_RUMBLE) to let _session() redispatch
+        and try the Bluetooth HID proxy again - a failed proxy attempt
+        otherwise means the fallback session (which has no reason on its own
+        to ever re-check) sticks around for the entire rest of that
+        connection. Uses the same exponential-backoff deadline
+        _session_bt_proxy sets on failure, so a persistently broken install
+        settles into long, infrequent retries instead of repeatedly forcing
+        the controller's evdev handle to close/reopen (each retry attempt
+        does that, however it turns out) - confirmed on real hardware that a
+        fixed short cooldown against a genuinely persistent failure caused
+        visible, repeated input drops, which is worse than just staying in
+        the fallback session quietly."""
+        return (kind == "bluetooth" and self.config.get("bt_hid_proxy", {}).get("enabled", False)
+                and time.monotonic() >= getattr(self, "_bt_proxy_retry_after", 0.0))
+
     def _session_fallback(self, dev, kind):
         """Everything except the Bluetooth HID proxy: USB/BT direct-audio if
         applicable, else the synthesized-envelope/FF_RUMBLE path. Also used
@@ -324,14 +368,15 @@ class HapticsEngine(threading.Thread):
         quad_fmt = f"<{chunk_samples * 4}h"
         phase_step = 2 * math.pi * BUTTON_CLICK_HZ / rate
 
+        audio_prefix = _audio_subprocess_prefix()
         parec = subprocess.Popen(
-            ["parec", "-d", "@DEFAULT_SINK@.monitor", "--format=s16le",
-             f"--rate={rate}", "--channels=2", "--raw", "--latency-msec=20"],
+            audio_prefix + ["parec", "-d", "@DEFAULT_SINK@.monitor", "--format=s16le",
+                             f"--rate={rate}", "--channels=2", "--raw", "--latency-msec=20"],
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         )
         paplay = subprocess.Popen(
-            ["paplay", "--raw", f"--rate={rate}", "--format=s16le", "--channels=4",
-             "--channel-map=front-left,front-right,rear-left,rear-right", f"--device={sink}"],
+            audio_prefix + ["paplay", "--raw", f"--rate={rate}", "--format=s16le", "--channels=4",
+                             "--channel-map=front-left,front-right,rear-left,rear-right", f"--device={sink}"],
             stdin=subprocess.PIPE, stderr=subprocess.DEVNULL,
         )
 
@@ -448,9 +493,10 @@ class HapticsEngine(threading.Thread):
         phase_step = 2 * math.pi * BT_BUTTON_CLICK_HZ / rate
 
         hidraw_file = open(hidraw_path, "wb", buffering=0)
+        audio_prefix = _audio_subprocess_prefix()
         parec = subprocess.Popen(
-            ["parec", "-d", "@DEFAULT_SINK@.monitor", "--format=s16le",
-             f"--rate={rate}", "--channels=2", "--raw", "--latency-msec=20"],
+            audio_prefix + ["parec", "-d", "@DEFAULT_SINK@.monitor", "--format=s16le",
+                             f"--rate={rate}", "--channels=2", "--raw", "--latency-msec=20"],
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         )
         saxense = subprocess.Popen(
@@ -463,7 +509,7 @@ class HapticsEngine(threading.Thread):
         phase = 0.0
 
         try:
-            while not self._stop_event.is_set():
+            while not self._stop_event.is_set() and not self._bt_proxy_should_retry("bluetooth"):
                 data = parec.stdout.read(stereo_bytes)
                 if len(data) < stereo_bytes:
                     if parec.poll() is not None:
@@ -559,17 +605,25 @@ class HapticsEngine(threading.Thread):
         bt_hid_proxy.py. Falls back through _session_fallback (BT direct-
         audio/SAxense if the user has that enabled too, else plain
         FF_RUMBLE) for this connection if the proxy can't be set up (missing
-        helper/udev rule, /dev/uhid inaccessible), with a 30s cooldown before
-        retrying so a persistently broken install doesn't respawn the helper
-        every 2s reconnect poll."""
+        helper/udev rule, /dev/uhid inaccessible), with an exponentially
+        backed-off cooldown before retrying (5s, 10s, 20s, ... capped at 5
+        minutes, reset to 5s on the next success): each retry attempt closes
+        and reopens the controller's evdev handle regardless of outcome, and
+        confirmed on real hardware that a fixed short cooldown against a
+        genuinely persistent failure (as opposed to a brief one) caused
+        visible, repeated input drops - worse than just settling into the
+        fallback session quietly until something actually changes."""
         session = bt_hid_proxy.BtHidProxySession()
         try:
             session.open()
         except bt_hid_proxy.ProxyUnavailable:
             self._emit_status("bt_proxy_unavailable")
-            self._bt_proxy_retry_after = time.monotonic() + 30
+            backoff = getattr(self, "_bt_proxy_backoff", 5)
+            self._bt_proxy_retry_after = time.monotonic() + backoff
+            self._bt_proxy_backoff = min(backoff * 2, 300)
             self._session_fallback(dev, "bluetooth")
             return
+        self._bt_proxy_backoff = 5
 
         try:
             direct_cfg = self.config.get("direct_audio", {})
@@ -593,6 +647,7 @@ class HapticsEngine(threading.Thread):
         copy of _session_ff (same parec spawn, same bass/treble/button DSP),
         swapping the FF_RUMBLE write for the proxy's relay+merge each tick."""
         proc = subprocess.Popen(
+            _audio_subprocess_prefix() +
             ["parec", "-d", "@DEFAULT_SINK@.monitor", "--format=s16le",
              f"--rate={RATE}", f"--channels={CHANNELS}", "--raw", "--latency-msec=20"],
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -712,9 +767,10 @@ class HapticsEngine(threading.Thread):
         phase_step = 2 * math.pi * BT_BUTTON_CLICK_HZ / rate
 
         hidraw_file = open(clone_hidraw, "wb", buffering=0)
+        audio_prefix = _audio_subprocess_prefix()
         parec = subprocess.Popen(
-            ["parec", "-d", "@DEFAULT_SINK@.monitor", "--format=s16le",
-             f"--rate={rate}", "--channels=2", "--raw", "--latency-msec=20"],
+            audio_prefix + ["parec", "-d", "@DEFAULT_SINK@.monitor", "--format=s16le",
+                             f"--rate={rate}", "--channels=2", "--raw", "--latency-msec=20"],
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         )
         saxense = subprocess.Popen(
@@ -828,6 +884,7 @@ class HapticsEngine(threading.Thread):
         effect.id = effect_id
 
         proc = subprocess.Popen(
+            _audio_subprocess_prefix() +
             ["parec", "-d", "@DEFAULT_SINK@.monitor", "--format=s16le",
              f"--rate={RATE}", f"--channels={CHANNELS}", "--raw", "--latency-msec=20"],
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -855,9 +912,10 @@ class HapticsEngine(threading.Thread):
         # claiming "connected" while doing nothing.
         last_ownership_check = 0.0
         last_reported_overridden = False
+        kind = connection_kind(dev)
 
         try:
-            while not self._stop_event.is_set():
+            while not self._stop_event.is_set() and not self._bt_proxy_should_retry(kind):
                 data = proc.stdout.read(CHUNK_BYTES)
                 if len(data) < CHUNK_BYTES:
                     if proc.poll() is not None:
