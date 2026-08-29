@@ -100,15 +100,29 @@ if [ "$want_app" = 1 ]; then
             PKGFILE=$(ls -t dualsense-haptics-*.pkg.tar.zst 2>/dev/null | head -1)
             [ -z "$PKGFILE" ] && { echo "100"; exit 1; }
 
-            echo "70"; echo "# Installing (admin access)..."
+            echo "60"; echo "# Installing (admin access)..."
+            PRIV_SCRIPT=$(mktemp)
+            # dualsensectl is AUR-only, so a fresh machine without an AUR
+            # helper run first won't have it - don't let that block the rest
+            # of the app (everything but adaptive triggers works without
+            # it), retry with --nodeps only if it's specifically the reason
+            # the plain install failed.
+            cat > "$PRIV_SCRIPT" <<EOF
+#!/bin/bash
+set -e
+pacman -S --needed --noconfirm python pyside6 python-evdev libpulse libcap || true
+pacman -U --noconfirm "$PWD/$PKGFILE" || pacman -U --noconfirm --nodeps "$PWD/$PKGFILE"
+EOF
+            chmod +x "$PRIV_SCRIPT"
             ok=1
-            pkexec pacman -U --noconfirm "$PWD/$PKGFILE" || ok=0
+            pkexec "$PRIV_SCRIPT" >/tmp/dualsense-haptics-pacman.log 2>&1 || ok=0
+            rm -f "$PRIV_SCRIPT"
             echo "100"
             [ "$ok" = 1 ] || exit 1
         ) | zenity --progress --title="Installing DualSense Haptics" --auto-close --no-cancel --pulsate
         if [ "${PIPESTATUS[0]}" -ne 0 ]; then
             failures="$failures\n- DualSense Haptics app"
-            zenity --error --title="App install failed" --text="Building or installing the package failed - see /tmp/dualsense-haptics-makepkg.log.\n\nMake sure build tools are installed (sudo pacman -S base-devel) and dualsensectl is available (it's AUR-only: paru -S dualsensectl or yay -S dualsensectl), then try again."
+            zenity --error --title="App install failed" --text="Building or installing the package failed - see /tmp/dualsense-haptics-makepkg.log and /tmp/dualsense-haptics-pacman.log.\n\nMake sure build tools are installed (sudo pacman -S base-devel), then try again. Adaptive triggers need dualsensectl too, which is AUR-only (paru -S dualsensectl or yay -S dualsensectl) - install it yourself if you want that; everything else works without it."
         fi
     else
         (
