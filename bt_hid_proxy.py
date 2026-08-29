@@ -142,22 +142,22 @@ def build_create2():
 BASS_PRIORITY = 0.6  # default for the "bass_priority" led_visualizer config knob
 
 
-def apply_led_visualizer(report, led):
+def led_rgb_and_bar(led):
     """led = (bass_level, mid_level, treble_level, bass_priority), each
     level 0.0-1.0 - bundled into one tuple rather than four separate
-    parameters since it threads through three call layers (this,
-    merge_rumble(), write_rumble()/forward_trigger_only()) untouched by any
-    of them. Sets the lightbar (BASS_COLOR/MID_COLOR/TREBLE_COLOR blended
-    additively per channel, each scaled by its own band's level - see the
-    color constants' own comment) and the 5 player-indicator LEDs (a
-    left-to-right bar graph sized by whichever band is loudest,
-    PLAYER_LEDS_INSTANT set so it tracks audio in real time instead of
-    fading). bass/treble are the same envelope magnitudes already driving
-    the strong/weak rumble motors, reused rather than recomputed; mid has
-    no motor to reuse from - see its own computation for why. Mutates
-    `report` in place; caller still owns recomputing the CRC afterward. See
-    command_lightbar3/command_player_leds in dualsensectl's source for the
-    underlying protocol this mirrors.
+    parameters since it threads through several call layers untouched.
+    Returns ((r, g, b), lit) - lit being how many of the 5 player-indicator
+    LEDs should be on, a left-to-right bar graph sized by whichever band is
+    loudest. bass/treble are meant to be the same envelope magnitudes
+    already driving the strong/weak rumble motors, reused rather than
+    recomputed; mid has no motor to reuse from - see its own computation at
+    each caller for why. The color blend is additive per channel
+    (BASS_COLOR/MID_COLOR/TREBLE_COLOR, each scaled by its own band's level
+    - see those constants' own comment), shared by both the Bluetooth HID
+    Proxy's own report-byte path (apply_led_visualizer(), desktop only) and
+    the plain sysfs LED class device path (write_led_sysfs() in
+    haptics_engine.py, used wherever the proxy isn't available, e.g. the
+    Decky plugin) so retuning the blend only ever needs doing once.
 
     bass_priority ducks mid/treble's contribution proportionally to the
     bass level before mixing - confirmed on real hardware that plain
@@ -174,11 +174,22 @@ def apply_led_visualizer(report, led):
     duck = 1.0 - max(0.0, min(1.0, bass_priority)) * bass_level
     mid_level *= duck
     treble_level *= duck
-    report[4] |= LIGHTBAR_CONTROL_FLAG | PLAYER_INDICATOR_CONTROL_FLAG
-    report[LIGHTBAR_RGB_FIELD] = bytes(
+    rgb = tuple(
         min(255, round(bass_level * bc + mid_level * mc + treble_level * tc))
         for bc, mc, tc in zip(BASS_COLOR, MID_COLOR, TREBLE_COLOR)
     )
+    return rgb, lit
+
+
+def apply_led_visualizer(report, led):
+    """Bluetooth HID Proxy report-byte variant of led_rgb_and_bar() - see
+    there for the color/bar-graph math. Mutates `report` in place; caller
+    still owns recomputing the CRC afterward. See command_lightbar3/
+    command_player_leds in dualsensectl's source for the underlying
+    protocol this mirrors."""
+    rgb, lit = led_rgb_and_bar(led)
+    report[4] |= LIGHTBAR_CONTROL_FLAG | PLAYER_INDICATOR_CONTROL_FLAG
+    report[LIGHTBAR_RGB_FIELD] = bytes(rgb)
     report[PLAYER_LEDS_FIELD] = ((1 << lit) - 1) | PLAYER_LEDS_INSTANT
 
 

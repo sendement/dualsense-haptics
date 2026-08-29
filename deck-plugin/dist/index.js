@@ -99,6 +99,12 @@ const STRINGS = {
         "trigger_right_title": "Right Trigger (R2)",
         "direct_audio_checkbox": "Play audio straight through the motors",
         "direct_audio_bt_checkbox": "Enable over Bluetooth (experimental)",
+        "led_visualizer_title": "Immersive Lighting",
+        "led_visualizer_checkbox": "Enable Immersive Lighting",
+        "label_led_attack": "Reaction Speed",
+        "label_led_release": "Fade Speed",
+        "label_led_gamma": "Peak Contrast",
+        "label_led_bass_priority": "Bass Priority",
         "game_profiles_title": "Game Profiles",
         "game_profiles_link_button": "Link current settings to",
         "game_profiles_empty": "No games linked yet - launch a game and tap the button above.",
@@ -159,6 +165,12 @@ const STRINGS = {
         "trigger_right_title": "Правый триггер (R2)",
         "direct_audio_checkbox": "Играть звук напрямую через моторы",
         "direct_audio_bt_checkbox": "Включить по Bluetooth (экспериментально)",
+        "led_visualizer_title": "Иммерсивная подсветка",
+        "led_visualizer_checkbox": "Включить иммерсивную подсветку",
+        "label_led_attack": "Скорость реакции",
+        "label_led_release": "Скорость затухания",
+        "label_led_gamma": "Контраст пиков",
+        "label_led_bass_priority": "Приоритет баса",
         "game_profiles_title": "Профили под игры",
         "game_profiles_link_button": "Привязать текущие настройки к",
         "game_profiles_empty": "Пока ничего не привязано — запусти игру и нажми кнопку выше.",
@@ -219,6 +231,12 @@ const STRINGS = {
         "trigger_right_title": "右扳机 (R2)",
         "direct_audio_checkbox": "直接通过马达播放音频",
         "direct_audio_bt_checkbox": "通过蓝牙启用（实验性）",
+        "led_visualizer_title": "沉浸式灯光",
+        "led_visualizer_checkbox": "启用沉浸式灯光",
+        "label_led_attack": "反应速度",
+        "label_led_release": "衰减速度",
+        "label_led_gamma": "峰值对比度",
+        "label_led_bass_priority": "低音优先级",
         "game_profiles_title": "游戏配置",
         "game_profiles_link_button": "将当前设置关联到",
         "game_profiles_empty": "还没有关联任何游戏——启动一个游戏，然后点击上面的按钮。",
@@ -279,6 +297,12 @@ const STRINGS = {
         "trigger_right_title": "Gatillo derecho (R2)",
         "direct_audio_checkbox": "Reproducir audio directamente en los motores",
         "direct_audio_bt_checkbox": "Activar por Bluetooth (experimental)",
+        "led_visualizer_title": "Iluminación inmersiva",
+        "led_visualizer_checkbox": "Activar iluminación inmersiva",
+        "label_led_attack": "Velocidad de reacción",
+        "label_led_release": "Velocidad de desvanecimiento",
+        "label_led_gamma": "Contraste de picos",
+        "label_led_bass_priority": "Prioridad de graves",
         "game_profiles_title": "Perfiles de juego",
         "game_profiles_link_button": "Vincular ajustes actuales a",
         "game_profiles_empty": "Aún no hay juegos vinculados: inicia un juego y toca el botón de arriba.",
@@ -339,6 +363,12 @@ const STRINGS = {
         "trigger_right_title": "Rechter Trigger (R2)",
         "direct_audio_checkbox": "Audio direkt über die Motoren abspielen",
         "direct_audio_bt_checkbox": "Über Bluetooth aktivieren (experimentell)",
+        "led_visualizer_title": "Immersive Beleuchtung",
+        "led_visualizer_checkbox": "Immersive Beleuchtung aktivieren",
+        "label_led_attack": "Reaktionsgeschwindigkeit",
+        "label_led_release": "Abklingzeit",
+        "label_led_gamma": "Spitzen-Kontrast",
+        "label_led_bass_priority": "Bass-Priorität",
         "game_profiles_title": "Spielprofile",
         "game_profiles_link_button": "Aktuelle Einstellungen verknüpfen mit",
         "game_profiles_empty": "Noch keine Spiele verknüpft – starte ein Spiel und tippe oben auf die Schaltfläche.",
@@ -399,6 +429,12 @@ const STRINGS = {
         "trigger_right_title": "Gâchette droite (R2)",
         "direct_audio_checkbox": "Jouer l'audio directement sur les moteurs",
         "direct_audio_bt_checkbox": "Activer par Bluetooth (expérimental)",
+        "led_visualizer_title": "Éclairage immersif",
+        "led_visualizer_checkbox": "Activer l'éclairage immersif",
+        "label_led_attack": "Vitesse de réaction",
+        "label_led_release": "Vitesse d'estompage",
+        "label_led_gamma": "Contraste des pics",
+        "label_led_bass_priority": "Priorité des graves",
         "game_profiles_title": "Profils de jeu",
         "game_profiles_link_button": "Associer les réglages actuels à",
         "game_profiles_empty": "Aucun jeu associé pour l'instant - lance un jeu et appuie sur le bouton ci-dessus.",
@@ -459,6 +495,12 @@ const STRINGS = {
         "trigger_right_title": "右トリガー (R2)",
         "direct_audio_checkbox": "音声をモーターに直接再生する",
         "direct_audio_bt_checkbox": "Bluetoothで有効にする（実験的機能）",
+        "led_visualizer_title": "没入型ライティング",
+        "led_visualizer_checkbox": "没入型ライティングを有効にする",
+        "label_led_attack": "反応速度",
+        "label_led_release": "減衰速度",
+        "label_led_gamma": "ピークのコントラスト",
+        "label_led_bass_priority": "低音優先度",
         "game_profiles_title": "ゲームプロファイル",
         "game_profiles_link_button": "現在の設定をリンク:",
         "game_profiles_empty": "まだゲームがリンクされていません。ゲームを起動して上のボタンを押してください。",
@@ -519,6 +561,12 @@ const STRINGS = {
         "trigger_right_title": "Gatilho direito (R2)",
         "direct_audio_checkbox": "Reproduzir áudio diretamente nos motores",
         "direct_audio_bt_checkbox": "Ativar via Bluetooth (experimental)",
+        "led_visualizer_title": "Iluminação imersiva",
+        "led_visualizer_checkbox": "Ativar iluminação imersiva",
+        "label_led_attack": "Velocidade de reação",
+        "label_led_release": "Velocidade de esmaecimento",
+        "label_led_gamma": "Contraste de picos",
+        "label_led_bass_priority": "Prioridade dos graves",
         "game_profiles_title": "Perfis de jogo",
         "game_profiles_link_button": "Vincular configurações atuais a",
         "game_profiles_empty": "Nenhum jogo vinculado ainda - inicie um jogo e toque no botão acima.",
@@ -579,6 +627,12 @@ const STRINGS = {
         "trigger_right_title": "오른쪽 트리거 (R2)",
         "direct_audio_checkbox": "오디오를 모터로 직접 재생",
         "direct_audio_bt_checkbox": "블루투스로 활성화 (실험적)",
+        "led_visualizer_title": "몰입형 조명",
+        "led_visualizer_checkbox": "몰입형 조명 활성화",
+        "label_led_attack": "반응 속도",
+        "label_led_release": "감쇠 속도",
+        "label_led_gamma": "피크 대비",
+        "label_led_bass_priority": "베이스 우선순위",
         "game_profiles_title": "게임 프로필",
         "game_profiles_link_button": "현재 설정을 다음에 연결:",
         "game_profiles_empty": "아직 연결된 게임이 없습니다 - 게임을 실행하고 위 버튼을 누르세요.",
@@ -663,6 +717,12 @@ const applyCustomTrigger = callable("apply_custom_trigger");
 const getDirectAudio = callable("get_direct_audio");
 const setDirectAudioEnabled = callable("set_direct_audio_enabled");
 const setDirectAudioBtEnabled = callable("set_direct_audio_bt_enabled");
+const getLedVisualizer = callable("get_led_visualizer");
+const setLedVisualizerEnabled = callable("set_led_visualizer_enabled");
+const setLedAttack = callable("set_led_attack");
+const setLedRelease = callable("set_led_release");
+const setLedGamma = callable("set_led_gamma");
+const setLedBassPriority = callable("set_led_bass_priority");
 const getLanguage = callable("get_language");
 const setLanguage = callable("set_language");
 const PRESET_LABEL_KEYS = {
@@ -881,6 +941,33 @@ function DirectAudioSection({ t }) {
     };
     return (SP_JSX.jsxs(DFL.PanelSection, { title: t("direct_audio_title"), children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: `USB — ${t("direct_audio_checkbox")}`, checked: directAudio.enabled, onChange: onUsbToggle }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: t("direct_audio_bt_checkbox"), checked: directAudio.bt_enabled, onChange: onBtToggle }) })] }));
 }
+function LedVisualizerSection({ t }) {
+    const [led, setLed] = SP_REACT.useState({ enabled: false, attack: 0.5, release: 0.08, gamma: 1.8, bass_priority: 0.6 });
+    SP_REACT.useEffect(() => {
+        (async () => setLed(await getLedVisualizer()))();
+    }, []);
+    const onToggle = async (value) => {
+        setLed((l) => ({ ...l, enabled: value }));
+        await setLedVisualizerEnabled(value);
+    };
+    const onAttackChange = async (value) => {
+        setLed((l) => ({ ...l, attack: value }));
+        await setLedAttack(value);
+    };
+    const onReleaseChange = async (value) => {
+        setLed((l) => ({ ...l, release: value }));
+        await setLedRelease(value);
+    };
+    const onGammaChange = async (value) => {
+        setLed((l) => ({ ...l, gamma: value }));
+        await setLedGamma(value);
+    };
+    const onBassPriorityChange = async (value) => {
+        setLed((l) => ({ ...l, bass_priority: value }));
+        await setLedBassPriority(value);
+    };
+    return (SP_JSX.jsxs(DFL.PanelSection, { title: t("led_visualizer_title"), children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: t("led_visualizer_checkbox"), checked: led.enabled, onChange: onToggle }) }), led.enabled && (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t("label_led_attack"), value: led.attack, min: 0.05, max: 1.0, step: 0.05, notchTicksVisible: false, onChange: onAttackChange }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t("label_led_release"), value: led.release, min: 0.01, max: 0.5, step: 0.01, notchTicksVisible: false, onChange: onReleaseChange }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t("label_led_gamma"), value: led.gamma, min: 0.5, max: 3.0, step: 0.1, notchTicksVisible: false, onChange: onGammaChange }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t("label_led_bass_priority"), value: led.bass_priority, min: 0.0, max: 1.0, step: 0.05, notchTicksVisible: false, onChange: onBassPriorityChange }) })] }))] }));
+}
 function GameProfilesSection({ t }) {
     const [mappings, setMappings] = SP_REACT.useState({});
     const [runningApp, setRunningApp] = SP_REACT.useState(null);
@@ -926,7 +1013,7 @@ function Root() {
         setLang(code);
         await setLanguage(code);
     };
-    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(MainSection, { t: t$1 }), SP_JSX.jsx(GameProfilesSection, { t: t$1 }), SP_JSX.jsx(TriggersSection, { t: t$1 }), SP_JSX.jsx(CustomTriggerCard, { side: "left", label: t$1("trigger_left_title"), t: t$1 }), SP_JSX.jsx(CustomTriggerCard, { side: "right", label: t$1("trigger_right_title"), t: t$1 }), SP_JSX.jsx(DirectAudioSection, { t: t$1 }), SP_JSX.jsx(SettingsSection, { lang: lang, onLangChange: onLangChange, t: t$1 })] }));
+    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(MainSection, { t: t$1 }), SP_JSX.jsx(GameProfilesSection, { t: t$1 }), SP_JSX.jsx(TriggersSection, { t: t$1 }), SP_JSX.jsx(CustomTriggerCard, { side: "left", label: t$1("trigger_left_title"), t: t$1 }), SP_JSX.jsx(CustomTriggerCard, { side: "right", label: t$1("trigger_right_title"), t: t$1 }), SP_JSX.jsx(DirectAudioSection, { t: t$1 }), SP_JSX.jsx(LedVisualizerSection, { t: t$1 }), SP_JSX.jsx(SettingsSection, { lang: lang, onLangChange: onLangChange, t: t$1 })] }));
 }
 var index = definePlugin(() => {
     (async () => {

@@ -27,6 +27,14 @@ interface DirectAudio {
   bt_enabled: boolean;
 }
 
+interface LedVisualizer {
+  enabled: boolean;
+  attack: number;
+  release: number;
+  gamma: number;
+  bass_priority: number;
+}
+
 interface CustomTrigger {
   mode: string;
   values: Record<string, number>;
@@ -77,6 +85,13 @@ const applyCustomTrigger = callable<[mode: string, values: Record<string, number
 const getDirectAudio = callable<[], DirectAudio>("get_direct_audio");
 const setDirectAudioEnabled = callable<[value: boolean], boolean>("set_direct_audio_enabled");
 const setDirectAudioBtEnabled = callable<[value: boolean], boolean>("set_direct_audio_bt_enabled");
+
+const getLedVisualizer = callable<[], LedVisualizer>("get_led_visualizer");
+const setLedVisualizerEnabled = callable<[value: boolean], boolean>("set_led_visualizer_enabled");
+const setLedAttack = callable<[value: number], boolean>("set_led_attack");
+const setLedRelease = callable<[value: number], boolean>("set_led_release");
+const setLedGamma = callable<[value: number], boolean>("set_led_gamma");
+const setLedBassPriority = callable<[value: number], boolean>("set_led_bass_priority");
 
 const getLanguage = callable<[], string>("get_language");
 const setLanguage = callable<[code: string], boolean>("set_language");
@@ -411,6 +426,95 @@ function DirectAudioSection({ t }: { t: (key: string) => string }) {
   );
 }
 
+function LedVisualizerSection({ t }: { t: (key: string) => string }) {
+  const [led, setLed] = useState<LedVisualizer>({ enabled: false, attack: 0.5, release: 0.08, gamma: 1.8, bass_priority: 0.6 });
+
+  useEffect(() => {
+    (async () => setLed(await getLedVisualizer()))();
+  }, []);
+
+  const onToggle = async (value: boolean) => {
+    setLed((l) => ({ ...l, enabled: value }));
+    await setLedVisualizerEnabled(value);
+  };
+
+  const onAttackChange = async (value: number) => {
+    setLed((l) => ({ ...l, attack: value }));
+    await setLedAttack(value);
+  };
+
+  const onReleaseChange = async (value: number) => {
+    setLed((l) => ({ ...l, release: value }));
+    await setLedRelease(value);
+  };
+
+  const onGammaChange = async (value: number) => {
+    setLed((l) => ({ ...l, gamma: value }));
+    await setLedGamma(value);
+  };
+
+  const onBassPriorityChange = async (value: number) => {
+    setLed((l) => ({ ...l, bass_priority: value }));
+    await setLedBassPriority(value);
+  };
+
+  return (
+    <PanelSection title={t("led_visualizer_title")}>
+      <PanelSectionRow>
+        <ToggleField label={t("led_visualizer_checkbox")} checked={led.enabled} onChange={onToggle} />
+      </PanelSectionRow>
+      {led.enabled && (
+        <>
+          <PanelSectionRow>
+            <SliderField
+              label={t("label_led_attack")}
+              value={led.attack}
+              min={0.05}
+              max={1.0}
+              step={0.05}
+              notchTicksVisible={false}
+              onChange={onAttackChange}
+            />
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <SliderField
+              label={t("label_led_release")}
+              value={led.release}
+              min={0.01}
+              max={0.5}
+              step={0.01}
+              notchTicksVisible={false}
+              onChange={onReleaseChange}
+            />
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <SliderField
+              label={t("label_led_gamma")}
+              value={led.gamma}
+              min={0.5}
+              max={3.0}
+              step={0.1}
+              notchTicksVisible={false}
+              onChange={onGammaChange}
+            />
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <SliderField
+              label={t("label_led_bass_priority")}
+              value={led.bass_priority}
+              min={0.0}
+              max={1.0}
+              step={0.05}
+              notchTicksVisible={false}
+              onChange={onBassPriorityChange}
+            />
+          </PanelSectionRow>
+        </>
+      )}
+    </PanelSection>
+  );
+}
+
 function GameProfilesSection({ t }: { t: (key: string) => string }) {
   const [mappings, setMappings] = useState<GameProfiles>({});
   const [runningApp, setRunningApp] = useState<{ appid: string; name: string } | null>(null);
@@ -512,6 +616,7 @@ function Root() {
       <CustomTriggerCard side="left" label={t("trigger_left_title")} t={t} />
       <CustomTriggerCard side="right" label={t("trigger_right_title")} t={t} />
       <DirectAudioSection t={t} />
+      <LedVisualizerSection t={t} />
       <SettingsSection lang={lang} onLangChange={onLangChange} t={t} />
     </>
   );

@@ -332,6 +332,41 @@ class Plugin:
         _write_config(raw)
         return True
 
+    async def get_led_visualizer(self) -> dict:
+        raw = _read_config() or {}
+        return raw.get("active", {}).get(
+            "led_visualizer", {"enabled": False, "attack": 0.5, "release": 0.08, "gamma": 1.8, "bass_priority": 0.6})
+
+    async def set_led_visualizer_enabled(self, value: bool) -> bool:
+        raw = _read_config() or {}
+        raw.setdefault("active", {}).setdefault("led_visualizer", {})["enabled"] = value
+        _write_config(raw)
+        return True
+
+    async def set_led_attack(self, value: float) -> bool:
+        raw = _read_config() or {}
+        raw.setdefault("active", {}).setdefault("led_visualizer", {})["attack"] = value
+        _write_config(raw)
+        return True
+
+    async def set_led_release(self, value: float) -> bool:
+        raw = _read_config() or {}
+        raw.setdefault("active", {}).setdefault("led_visualizer", {})["release"] = value
+        _write_config(raw)
+        return True
+
+    async def set_led_gamma(self, value: float) -> bool:
+        raw = _read_config() or {}
+        raw.setdefault("active", {}).setdefault("led_visualizer", {})["gamma"] = value
+        _write_config(raw)
+        return True
+
+    async def set_led_bass_priority(self, value: float) -> bool:
+        raw = _read_config() or {}
+        raw.setdefault("active", {}).setdefault("led_visualizer", {})["bass_priority"] = value
+        _write_config(raw)
+        return True
+
     async def get_custom_trigger(self, side: str):
         raw = _read_config() or {}
         return raw.get(f"trigger_custom_{side}")

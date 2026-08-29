@@ -177,6 +177,70 @@ def connection_kind(dev):
     return None
 
 
+_PLAYER_LED_RE = re.compile(r".*:white:player-(\d)$")
+
+
+def find_led_paths(dev):
+    """Sysfs LED class device paths for this DualSense's lightbar (an RGB
+    "multi-color" LED, its `multi_intensity` file taking "R G B" 0-255 each)
+    and its 5 player-indicator LEDs (each a plain on/off `brightness` file)
+    - hid-playstation registers these as ordinary Linux LED class devices,
+    sibling to the hid device's own sysfs node. That node is two levels up
+    from /sys/class/input/<event>/device's own target (event -> input core
+    -> the hid device itself) - a standard evdev/input-core relationship,
+    nothing DualSense-specific.
+
+    This is the mechanism the Immersive Lighting visualizer uses wherever
+    the Bluetooth HID Proxy isn't available to safely own report bytes
+    (see bt_hid_proxy.apply_led_visualizer()) - namely the Decky plugin,
+    which dropped that proxy entirely (see _session_bt_proxy's own history)
+    - since it drives the device through the kernel's own LED subsystem
+    instead of a raw hidraw write, with no exclusive-access dance needed.
+    Returns (lightbar_path, [5 player paths, in order]); any element is
+    None if this kernel's hid-playstation doesn't expose it (older
+    kernels don't)."""
+    try:
+        input_dir = os.path.realpath(f"/sys/class/input/{os.path.basename(dev.path)}/device")
+        leds_dir = os.path.join(os.path.dirname(os.path.dirname(input_dir)), "leds")
+        names = os.listdir(leds_dir)
+    except OSError:
+        return None, [None] * 5
+    lightbar = None
+    players = [None] * 5
+    for name in names:
+        if name.endswith(":rgb:indicator"):
+            lightbar = os.path.join(leds_dir, name, "multi_intensity")
+        else:
+            m = _PLAYER_LED_RE.match(name)
+            if m:
+                idx = int(m.group(1)) - 1
+                if 0 <= idx < 5:
+                    players[idx] = os.path.join(leds_dir, name, "brightness")
+    return lightbar, players
+
+
+def write_led_sysfs(lightbar_path, player_paths, led):
+    """Applies led_rgb_and_bar(led) via find_led_paths()'s sysfs files
+    instead of a hidraw report - see find_led_paths() for when/why. Missing
+    paths (kernel without LED class support) are silently skipped rather
+    than raising, same as a report-byte write would just be a no-op on
+    hardware that doesn't support it."""
+    rgb, lit = bt_hid_proxy.led_rgb_and_bar(led)
+    if lightbar_path:
+        try:
+            with open(lightbar_path, "w") as f:
+                f.write(f"{rgb[0]} {rgb[1]} {rgb[2]}")
+        except OSError:
+            pass
+    for i, path in enumerate(player_paths):
+        if path:
+            try:
+                with open(path, "w") as f:
+                    f.write("1" if i < lit else "0")
+            except OSError:
+                pass
+
+
 def find_dualsense_sink():
     """Name of the DualSense's 4-channel "Direct" USB Audio Class sink, if
     connected over USB and PipeWire/PulseAudio has already picked it up.
@@ -1113,6 +1177,17 @@ class HapticsEngine(threading.Thread):
         bass_y = treble_y = 0.0
         bass_ceil = treble_ceil = 0.0
         strong_env = weak_env = 0.0
+        # Mid-band and LED smoothing state - see _run_bt_proxy_envelope's
+        # own comment on the mid-band, this mirrors it exactly. This is the
+        # sysfs-backed Immersive Lighting path (find_led_paths()/
+        # write_led_sysfs()), used here since this session has no Bluetooth
+        # HID Proxy to safely own report bytes with - notably including the
+        # Decky plugin, which dropped that proxy entirely.
+        mid_y = 0.0
+        mid_ceil = 0.0
+        mid_env = 0.0
+        led_bass_smooth = led_mid_smooth = led_treble_smooth = 0.0
+        lightbar_path, player_led_paths = find_led_paths(dev)
         button_strong_env = button_weak_env = 0.0
         held_keys = {}
         hat_x = hat_y = 0
@@ -1165,6 +1240,17 @@ class HapticsEngine(threading.Thread):
                 treble_y, treble_ref = lowpass_block(right, treble_y, cfg["treble_cutoff_hz"], RATE)
                 treble_band = [r - t for r, t in zip(right, treble_ref)]
 
+                led_on = cfg.get("led_visualizer", {}).get("enabled", False)
+                mid_mag = 0.0
+                if led_on:
+                    mid_y, mid_lp = lowpass_block(right, mid_y, cfg["bass_cutoff_hz"], RATE)
+                    mid_band = [t - m for t, m in zip(treble_ref, mid_lp)]
+                    mid_ceil, mid_delta = ceiling_step(
+                        peak(mid_band), mid_ceil,
+                        cfg["treble_ceiling"]["attack_s"], cfg["treble_ceiling"]["release_s"], update_hz)
+                    mid_env, mid_mag = shape(mid_delta, mid_env, cfg["treble"])
+                    mid_mag = min(1.0, mid_mag * cfg["master_gain"])
+
                 bass_ceil, bass_delta = ceiling_step(
                     peak(bass_band), bass_ceil,
                     cfg["bass_ceiling"]["attack_s"], cfg["bass_ceiling"]["release_s"], update_hz)
@@ -1202,6 +1288,15 @@ class HapticsEngine(threading.Thread):
 
                 strong_mag = min(1.0, strong_mag + button_strong_env)
                 weak_mag = min(1.0, weak_mag + button_weak_env)
+
+                if led_on:
+                    led_cfg = cfg.get("led_visualizer", {})
+                    att, rel, gam = led_cfg.get("attack", 0.5), led_cfg.get("release", 0.08), led_cfg.get("gamma", 1.8)
+                    led_bass_smooth, led_bass_out = _led_smooth(strong_mag, led_bass_smooth, att, rel, gam)
+                    led_mid_smooth, led_mid_out = _led_smooth(mid_mag, led_mid_smooth, att, rel, gam)
+                    led_treble_smooth, led_treble_out = _led_smooth(weak_mag, led_treble_smooth, att, rel, gam)
+                    write_led_sysfs(lightbar_path, player_led_paths,
+                                     (led_bass_out, led_mid_out, led_treble_out, led_cfg.get("bass_priority", 0.6)))
 
                 effect.u.ff_rumble_effect.strong_magnitude = int(strong_mag * 0xFFFF)
                 effect.u.ff_rumble_effect.weak_magnitude = int(weak_mag * 0xFFFF)
