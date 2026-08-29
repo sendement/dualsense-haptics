@@ -62,6 +62,18 @@ automatically (see [Installation](#installation)); without them it falls
 back to the same "detect and report" behavior described in
 [Limitations](#limitations).
 
+**Immersive Lighting** (opt-in under **Advanced Settings**, or its own
+toggle in the Decky QAM panel, off by default) turns the lightbar and the
+5 player-indicator LEDs into a live bass/mid/treble meter — bass reads red,
+mid green, treble blue, blended by how loud each band is right now, with
+the 5 player LEDs working as a plain volume bar. On the Decky plugin (and
+on desktop whenever Trigger + Vibration Mix is off) it drives the
+controller's lightbar/player LEDs directly through the kernel's own LED
+class devices, no proxy needed; with Trigger + Vibration Mix on, it rides
+along inside that same proxy session instead. Either way it's extra
+Bluetooth traffic on top of everything else, so a congested BT channel can
+make it flaky too — see [Limitations](#limitations).
+
 ## Features
 
 - **Direct audio-to-haptics over USB** — live system audio streamed as
@@ -88,6 +100,9 @@ back to the same "detect and report" behavior described in
 - **Per-button haptics** — pick any face button, bumper, trigger click,
   stick click, or the D-pad to buzz lightly while held, mixed with the audio
   vibration, at its own strength, from the motor on that side of the pad.
+- **Immersive Lighting** — the lightbar and player-indicator LEDs pulse and
+  color-shift with bass/mid/treble in real time (see
+  [How it works](#how-it-works)), on desktop and the Decky plugin alike.
 - **Works over USB or Bluetooth**, with a badge on the home screen showing
   which one is active.
 - **System tray icon** with live connection status and battery percentage.
@@ -283,6 +298,15 @@ tray icon's context menu to reopen, toggle vibration, or quit. Check
   distros haven't been extensively tested.
 - Trigger + Vibration Mix is desktop-only (not in the Decky plugin) — see
   [Steam Deck / SteamOS](#steam-deck--steamos-decky-loader-plugin) for why.
+- Everything here rides over Bluetooth's own radio link, which has no
+  guaranteed bandwidth. A busy 2.4GHz channel — Wi-Fi and Bluetooth sharing
+  the same radio (common on a Steam Deck), other Bluetooth devices nearby,
+  or physical distance/obstructions — can show up as crackling on the
+  experimental SAxense audio path (especially on higher-pitched sounds,
+  which need more of that limited bandwidth to come through cleanly), or
+  even the controller dropping its connection outright. None of this is
+  something the app can fix in software; if you see it, try turning off
+  Wi-Fi or moving closer to confirm it's the radio and not a bug.
 
 ## Credits
 
