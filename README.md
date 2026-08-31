@@ -307,6 +307,15 @@ tray icon's context menu to reopen, toggle vibration, or quit. Check
   even the controller dropping its connection outright. None of this is
   something the app can fix in software; if you see it, try turning off
   Wi-Fi or moving closer to confirm it's the radio and not a bug.
+- Occasionally the controller and your PC's Bluetooth adapter can get out of
+  sync about the connection state - the app (correctly) sees the controller
+  as gone, but your desktop's own Bluetooth indicator/notifications may keep
+  showing it as connected for a while, or not notice at all. If reconnecting
+  normally doesn't help, turn the controller fully off (hold the PS button
+  a few seconds until it powers down) and back on - that forces a clean
+  reconnect. This is a Bluetooth stack/radio quirk between the OS and the
+  controller, not something this app causes or can detect/fix from the
+  outside.
 
 ## Credits
 

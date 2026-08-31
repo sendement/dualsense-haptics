@@ -587,7 +587,19 @@ class BtHidProxySession:
                 while time.monotonic() < deadline and time.monotonic() < quiet_until:
                     readable, _, _ = select.select([self.uhid_fd], [], [], 0.1)
                     if readable:
-                        self.relay_output_or_get_report()
+                        try:
+                            self.relay_output_or_get_report()
+                        except OSError:
+                            # The clone (uhid_fd) itself is fine here - this can
+                            # only fail from a real_fd-side write/ioctl, e.g. Steam
+                            # renegotiating the connection right as a game
+                            # launches (see this method's own comment above on
+                            # that). Confirmed on real hardware that letting this
+                            # propagate to the outer except tore down a brand new,
+                            # otherwise healthy clone over one dropped forward -
+                            # which is what actually showed up as the controller
+                            # dropping at the exact moment a game started.
+                            break
                         quiet_until = time.monotonic() + 0.3
             except OSError as e:
                 self._teardown_fds()
@@ -684,7 +696,10 @@ class BtHidProxySession:
             if rtype == 1 and len(report) == len(DEFAULT_OUTPUT_REPORT):
                 self.last_steam_report = self._merge_incoming_output(report)
             elif self.real_fd is not None:
-                os.write(self.real_fd, report)
+                try:
+                    os.write(self.real_fd, report)
+                except OSError:
+                    pass
         elif etype == UHID_GET_REPORT:
             req_id, rnum, rtype = struct.unpack_from("<IBB", data, 4)
             try:
