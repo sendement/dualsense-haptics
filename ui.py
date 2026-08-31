@@ -24,7 +24,12 @@ from presets import (
     PRESETS, PRESET_ORDER, preset_params, TRIGGER_PRESETS, TRIGGER_PRESET_ORDER,
     TRIGGER_EFFECT_ORDER, TRIGGER_EFFECT_PARAMS,
 )
-from haptics_engine import DPAD_VIRTUAL_CODE, BT_CHUNK_MS, BT_CHUNK_MS_CHOICES
+from haptics_engine import (
+    DPAD_VIRTUAL_CODE, LEFT_STICK_VIRTUAL_CODE, RIGHT_STICK_VIRTUAL_CODE,
+    LEFT_TRIGGER_VIRTUAL_CODE, RIGHT_TRIGGER_VIRTUAL_CODE,
+    BT_CHUNK_MS, BT_CHUNK_MS_CHOICES,
+    BUTTON_CLICK_HZ, BUTTON_CLICK_HZ_MIN, BUTTON_CLICK_HZ_MAX,
+)
 import bt_hid_proxy
 import triggers
 import theme
@@ -42,7 +47,9 @@ LEFT_BUTTON_OPTIONS = [
     ("btn_dpad", DPAD_VIRTUAL_CODE),
     ("btn_l1", ec.BTN_TL),
     ("btn_l2_press", ec.BTN_TL2),
+    ("btn_left_trigger", LEFT_TRIGGER_VIRTUAL_CODE),
     ("btn_l3", ec.BTN_THUMBL),
+    ("btn_left_stick", LEFT_STICK_VIRTUAL_CODE),
     ("btn_share", ec.BTN_SELECT),
 ]
 RIGHT_BUTTON_OPTIONS = [
@@ -52,7 +59,9 @@ RIGHT_BUTTON_OPTIONS = [
     ("btn_square", ec.BTN_WEST),
     ("btn_r1", ec.BTN_TR),
     ("btn_r2_press", ec.BTN_TR2),
+    ("btn_right_trigger", RIGHT_TRIGGER_VIRTUAL_CODE),
     ("btn_r3", ec.BTN_THUMBR),
+    ("btn_right_stick", RIGHT_STICK_VIRTUAL_CODE),
     ("btn_options", ec.BTN_START),
     ("btn_ps", ec.BTN_MODE),
 ]
@@ -1026,9 +1035,11 @@ class TriggersPage(QWidget):
 
 
 class ButtonHapticRow(QWidget):
-    """One button: checkbox + inline strength slider, kept to a single
-    compact row so a whole group of buttons reads as a list, not a stack of
-    cards."""
+    """One button: checkbox + inline strength and click-tone sliders, kept to
+    a single compact row so a whole group of buttons reads as a list, not a
+    stack of cards. The tone slider only matters on the literal-PCM/SAxense
+    sessions - see DEFAULT_CONFIG's button_haptics comment - but is always
+    shown since it's cheap to ignore on the FF_RUMBLE path."""
 
     def __init__(self, label, code, entry):
         super().__init__()
@@ -1051,6 +1062,16 @@ class ButtonHapticRow(QWidget):
         self.value_label.setProperty("role", "value")
         self.value_label.setFixedWidth(36)
         layout.addWidget(self.value_label)
+
+        self.hz_slider = QSlider(Qt.Horizontal)
+        self.hz_slider.setRange(BUTTON_CLICK_HZ_MIN, BUTTON_CLICK_HZ_MAX)
+        self.hz_slider.setValue(int(entry.get("click_hz", BUTTON_CLICK_HZ)))
+        layout.addWidget(self.hz_slider, 1)
+
+        self.hz_value_label = QLabel(f"{int(entry.get('click_hz', BUTTON_CLICK_HZ))} Hz")
+        self.hz_value_label.setProperty("role", "value")
+        self.hz_value_label.setFixedWidth(50)
+        layout.addWidget(self.hz_value_label)
 
 
 class ButtonHapticPage(QWidget):
@@ -1086,17 +1107,18 @@ class ButtonHapticPage(QWidget):
         box = QGroupBox(title)
         layout = QVBoxLayout(box)
         for label_key, code in options:
-            entry = self.state["active"]["button_haptics"].setdefault(str(code), {"enabled": False, "strength": 0.4})
+            entry = self.state["active"]["button_haptics"].setdefault(str(code), {"enabled": False, "strength": 0.4, "click_hz": BUTTON_CLICK_HZ})
             row = ButtonHapticRow(t(label_key), code, entry)
             row.check.toggled.connect(lambda checked, c=code: self._set_enabled(c, checked))
             row.slider.valueChanged.connect(lambda v, c=code: self._set_strength(c, v / 1000))
+            row.hz_slider.valueChanged.connect(lambda v, c=code: self._set_click_hz(c, v))
             layout.addWidget(row)
             self.rows[code] = row
         layout.addStretch(1)
         return box
 
     def _entry(self, code):
-        return self.state["active"]["button_haptics"].setdefault(str(code), {"enabled": False, "strength": 0.4})
+        return self.state["active"]["button_haptics"].setdefault(str(code), {"enabled": False, "strength": 0.4, "click_hz": BUTTON_CLICK_HZ})
 
     def _set_enabled(self, code, checked):
         self._entry(code)["enabled"] = checked
@@ -1105,6 +1127,11 @@ class ButtonHapticPage(QWidget):
     def _set_strength(self, code, value):
         self._entry(code)["strength"] = value
         self.rows[code].value_label.setText(f"{value:.2f}")
+        self.on_change()
+
+    def _set_click_hz(self, code, value):
+        self._entry(code)["click_hz"] = value
+        self.rows[code].hz_value_label.setText(f"{value} Hz")
         self.on_change()
 
     def refresh(self):
@@ -1117,6 +1144,10 @@ class ButtonHapticPage(QWidget):
             row.slider.setValue(int(entry["strength"] * 1000))
             row.slider.blockSignals(False)
             row.value_label.setText(f"{entry['strength']:.2f}")
+            row.hz_slider.blockSignals(True)
+            row.hz_slider.setValue(int(entry.get("click_hz", BUTTON_CLICK_HZ)))
+            row.hz_slider.blockSignals(False)
+            row.hz_value_label.setText(f"{int(entry.get('click_hz', BUTTON_CLICK_HZ))} Hz")
 
 
 class AdvancedPage(QWidget):

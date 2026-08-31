@@ -424,10 +424,10 @@ class Plugin:
         raw = _read_config() or {}
         return raw.get("active", {}).get("button_haptics", {})
 
-    async def set_button_haptic(self, code: str, enabled: bool, strength: float) -> bool:
+    async def set_button_haptic(self, code: str, enabled: bool, strength: float, click_hz: float) -> bool:
         raw = _read_config() or {}
         raw.setdefault("active", {}).setdefault("button_haptics", {})[code] = \
-            {"enabled": enabled, "strength": strength}
+            {"enabled": enabled, "strength": strength, "click_hz": click_hz}
         _write_config(raw)
         return True
 

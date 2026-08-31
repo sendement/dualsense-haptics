@@ -42,6 +42,7 @@ interface BandSettings {
 interface ButtonHapticEntry {
   enabled: boolean;
   strength: number;
+  click_hz: number;
 }
 
 interface LedVisualizer {
@@ -115,7 +116,9 @@ const getBandSettings = callable<[band: string], BandSettings>("get_band_setting
 const setBandParam = callable<[band: string, key: string, value: number], boolean>("set_band_param");
 
 const getButtonHaptics = callable<[], Record<string, ButtonHapticEntry>>("get_button_haptics");
-const setButtonHaptic = callable<[code: string, enabled: boolean, strength: number], boolean>("set_button_haptic");
+const setButtonHaptic = callable<[code: string, enabled: boolean, strength: number, click_hz: number], boolean>(
+  "set_button_haptic",
+);
 
 const getLedVisualizer = callable<[], LedVisualizer>("get_led_visualizer");
 const setLedVisualizerEnabled = callable<[value: boolean], boolean>("set_led_visualizer_enabled");
@@ -642,6 +645,13 @@ function LedVisualizerSection({ t }: { t: (key: string) => string }) {
 // this particular value at all (see the git history on this file).
 const BT_CHUNK_MS_CHOICES = [10, 20, 30];
 
+// Mirrors haptics_engine.py's BUTTON_CLICK_HZ(_MIN/_MAX) - step=20 keeps this
+// to 18 positions, under the ~19-20 threshold where SliderField's handle
+// stops rendering (see the other sliders' history in this file).
+const BUTTON_CLICK_HZ_DEFAULT = 150;
+const BUTTON_CLICK_HZ_MIN = 60;
+const BUTTON_CLICK_HZ_MAX = 400;
+
 function decimalsFor(step: number): number {
   const s = step.toString();
   const i = s.indexOf(".");
@@ -722,13 +732,17 @@ function BandSection({ band, title, t }: { band: string; title: string; t: (key:
 
 // Real evdev button codes (confirmed via `python3 -c "from evdev import ecodes"`,
 // matching ui.py's LEFT_BUTTON_OPTIONS/RIGHT_BUTTON_OPTIONS and
-// haptics_engine.py's DPAD_VIRTUAL_CODE) - button_haptics config keys are
-// str(code) on the Python side.
+// haptics_engine.py's DPAD_VIRTUAL_CODE/LEFT_STICK_VIRTUAL_CODE/
+// RIGHT_STICK_VIRTUAL_CODE/LEFT_TRIGGER_VIRTUAL_CODE/
+// RIGHT_TRIGGER_VIRTUAL_CODE) - button_haptics config keys are str(code) on
+// the Python side.
 const LEFT_BUTTON_OPTIONS: [string, number][] = [
   ["btn_dpad", -1],
   ["btn_l1", 310],
   ["btn_l2_press", 312],
+  ["btn_left_trigger", -4],
   ["btn_l3", 317],
+  ["btn_left_stick", -2],
   ["btn_share", 314],
 ];
 const RIGHT_BUTTON_OPTIONS: [string, number][] = [
@@ -738,7 +752,9 @@ const RIGHT_BUTTON_OPTIONS: [string, number][] = [
   ["btn_square", 308],
   ["btn_r1", 311],
   ["btn_r2_press", 313],
+  ["btn_right_trigger", -5],
   ["btn_r3", 318],
+  ["btn_right_stick", -3],
   ["btn_options", 315],
   ["btn_ps", 316],
 ];
@@ -749,23 +765,37 @@ function ButtonHapticRow({ labelKey, code, t, entry, onChange }: {
 }) {
   const onToggle = (value: boolean) => onChange(code, { ...entry, enabled: value });
   const onStrength = (value: number) => onChange(code, { ...entry, strength: value });
+  const onClickHz = (value: number) => onChange(code, { ...entry, click_hz: value });
   return (
     <>
       <PanelSectionRow>
         <ToggleField label={t(labelKey)} checked={entry.enabled} onChange={onToggle} />
       </PanelSectionRow>
       {entry.enabled && (
-        <PanelSectionRow>
-          <SliderField
-            label={t("trig_param_strength")}
-            value={entry.strength}
-            min={0.0}
-            max={1.0}
-            step={0.05}
-            notchTicksVisible={false}
-            onChange={onStrength}
-          />
-        </PanelSectionRow>
+        <>
+          <PanelSectionRow>
+            <SliderField
+              label={t("trig_param_strength")}
+              value={entry.strength}
+              min={0.0}
+              max={1.0}
+              step={0.05}
+              notchTicksVisible={false}
+              onChange={onStrength}
+            />
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <SliderField
+              label={t("trig_param_frequency")}
+              value={entry.click_hz}
+              min={BUTTON_CLICK_HZ_MIN}
+              max={BUTTON_CLICK_HZ_MAX}
+              step={20}
+              notchTicksVisible={false}
+              onChange={onClickHz}
+            />
+          </PanelSectionRow>
+        </>
       )}
     </>
   );
@@ -779,18 +809,22 @@ function ButtonHapticsSection({ t }: { t: (key: string) => string }) {
       const fetched = await getButtonHaptics();
       const snapped: Record<string, ButtonHapticEntry> = {};
       for (const [code, entry] of Object.entries(fetched)) {
-        snapped[code] = { ...entry, strength: snapToStep(entry.strength, 0.0, 0.05) };
+        snapped[code] = {
+          ...entry,
+          strength: snapToStep(entry.strength, 0.0, 0.05),
+          click_hz: snapToStep(entry.click_hz ?? BUTTON_CLICK_HZ_DEFAULT, BUTTON_CLICK_HZ_MIN, 20),
+        };
       }
       setEntries(snapped);
     })();
   }, []);
 
   const entryFor = (code: number): ButtonHapticEntry =>
-    entries[String(code)] ?? { enabled: false, strength: 0.4 };
+    entries[String(code)] ?? { enabled: false, strength: 0.4, click_hz: BUTTON_CLICK_HZ_DEFAULT };
 
   const onRowChange = async (code: number, entry: ButtonHapticEntry) => {
     setEntries((e) => ({ ...e, [String(code)]: entry }));
-    await setButtonHaptic(String(code), entry.enabled, entry.strength);
+    await setButtonHaptic(String(code), entry.enabled, entry.strength, entry.click_hz);
   };
 
   const renderGroup = (options: [string, number][]) =>

@@ -170,7 +170,9 @@ const STRINGS = {
         "btn_dpad": "D-Pad",
         "btn_l1": "L1",
         "btn_l2_press": "L2 (press)",
+        "btn_left_trigger": "L2 (analog pull)",
         "btn_l3": "L3 (stick)",
+        "btn_left_stick": "Left Stick Tilt",
         "btn_share": "Share / Create",
         "btn_cross": "Cross (✕)",
         "btn_circle": "Circle (○)",
@@ -178,7 +180,9 @@ const STRINGS = {
         "btn_square": "Square (□)",
         "btn_r1": "R1",
         "btn_r2_press": "R2 (press)",
+        "btn_right_trigger": "R2 (analog pull)",
         "btn_r3": "R3 (stick)",
+        "btn_right_stick": "Right Stick Tilt",
         "btn_options": "Options",
         "btn_ps": "PS",
         "group_left_side": "Left Side",
@@ -272,7 +276,9 @@ const STRINGS = {
         "btn_dpad": "Крестовина",
         "btn_l1": "L1",
         "btn_l2_press": "L2 (нажатие)",
+        "btn_left_trigger": "L2 (аналоговое нажатие)",
         "btn_l3": "L3 (стик)",
+        "btn_left_stick": "Наклон левого стика",
         "btn_share": "Share / Create",
         "btn_cross": "Крест (✕)",
         "btn_circle": "Кружок (○)",
@@ -280,7 +286,9 @@ const STRINGS = {
         "btn_square": "Квадрат (□)",
         "btn_r1": "R1",
         "btn_r2_press": "R2 (нажатие)",
+        "btn_right_trigger": "R2 (аналоговое нажатие)",
         "btn_r3": "R3 (стик)",
+        "btn_right_stick": "Наклон правого стика",
         "btn_options": "Options",
         "btn_ps": "PS",
         "group_left_side": "Левая сторона",
@@ -374,7 +382,9 @@ const STRINGS = {
         "btn_dpad": "方向键",
         "btn_l1": "L1",
         "btn_l2_press": "L2（按下）",
+        "btn_left_trigger": "L2（模拟按压）",
         "btn_l3": "L3（摇杆按下）",
+        "btn_left_stick": "左摇杆倾斜",
         "btn_share": "分享/创建",
         "btn_cross": "✕（叉）",
         "btn_circle": "○（圈）",
@@ -382,7 +392,9 @@ const STRINGS = {
         "btn_square": "□（方块）",
         "btn_r1": "R1",
         "btn_r2_press": "R2（按下）",
+        "btn_right_trigger": "R2（模拟按压）",
         "btn_r3": "R3（摇杆按下）",
+        "btn_right_stick": "右摇杆倾斜",
         "btn_options": "选项",
         "btn_ps": "PS",
         "group_left_side": "左侧",
@@ -476,7 +488,9 @@ const STRINGS = {
         "btn_dpad": "Cruceta",
         "btn_l1": "L1",
         "btn_l2_press": "L2 (pulsación)",
+        "btn_left_trigger": "L2 (pulsación analógica)",
         "btn_l3": "L3 (stick)",
+        "btn_left_stick": "Inclinación del stick izquierdo",
         "btn_share": "Compartir / Crear",
         "btn_cross": "Cruz (✕)",
         "btn_circle": "Círculo (○)",
@@ -484,7 +498,9 @@ const STRINGS = {
         "btn_square": "Cuadrado (□)",
         "btn_r1": "R1",
         "btn_r2_press": "R2 (pulsación)",
+        "btn_right_trigger": "R2 (pulsación analógica)",
         "btn_r3": "R3 (stick)",
+        "btn_right_stick": "Inclinación del stick derecho",
         "btn_options": "Options",
         "btn_ps": "PS",
         "group_left_side": "Lado izquierdo",
@@ -578,7 +594,9 @@ const STRINGS = {
         "btn_dpad": "Steuerkreuz",
         "btn_l1": "L1",
         "btn_l2_press": "L2 (drücken)",
+        "btn_left_trigger": "L2 (analoger Druck)",
         "btn_l3": "L3 (Stick)",
+        "btn_left_stick": "Neigung des linken Sticks",
         "btn_share": "Share / Create",
         "btn_cross": "Kreuz (✕)",
         "btn_circle": "Kreis (○)",
@@ -586,7 +604,9 @@ const STRINGS = {
         "btn_square": "Quadrat (□)",
         "btn_r1": "R1",
         "btn_r2_press": "R2 (drücken)",
+        "btn_right_trigger": "R2 (analoger Druck)",
         "btn_r3": "R3 (Stick)",
+        "btn_right_stick": "Neigung des rechten Sticks",
         "btn_options": "Options",
         "btn_ps": "PS",
         "group_left_side": "Linke Seite",
@@ -680,7 +700,9 @@ const STRINGS = {
         "btn_dpad": "Croix directionnelle",
         "btn_l1": "L1",
         "btn_l2_press": "L2 (appui)",
+        "btn_left_trigger": "L2 (pression analogique)",
         "btn_l3": "L3 (stick)",
+        "btn_left_stick": "Inclinaison du stick gauche",
         "btn_share": "Share / Create",
         "btn_cross": "Croix (✕)",
         "btn_circle": "Rond (○)",
@@ -688,7 +710,9 @@ const STRINGS = {
         "btn_square": "Carré (□)",
         "btn_r1": "R1",
         "btn_r2_press": "R2 (appui)",
+        "btn_right_trigger": "R2 (pression analogique)",
         "btn_r3": "R3 (stick)",
+        "btn_right_stick": "Inclinaison du stick droit",
         "btn_options": "Options",
         "btn_ps": "PS",
         "group_left_side": "Côté gauche",
@@ -782,7 +806,9 @@ const STRINGS = {
         "btn_dpad": "十字キー",
         "btn_l1": "L1",
         "btn_l2_press": "L2（押し込み）",
+        "btn_left_trigger": "L2（アナログ押し込み）",
         "btn_l3": "L3（スティック押し込み）",
+        "btn_left_stick": "左スティックの傾き",
         "btn_share": "シェア / クリエイト",
         "btn_cross": "✕（クロス）",
         "btn_circle": "○（サークル）",
@@ -790,7 +816,9 @@ const STRINGS = {
         "btn_square": "□（スクエア）",
         "btn_r1": "R1",
         "btn_r2_press": "R2（押し込み）",
+        "btn_right_trigger": "R2（アナログ押し込み）",
         "btn_r3": "R3（スティック押し込み）",
+        "btn_right_stick": "右スティックの傾き",
         "btn_options": "オプション",
         "btn_ps": "PS",
         "group_left_side": "左側",
@@ -884,7 +912,9 @@ const STRINGS = {
         "btn_dpad": "Direcional",
         "btn_l1": "L1",
         "btn_l2_press": "L2 (pressionado)",
+        "btn_left_trigger": "L2 (pressão analógica)",
         "btn_l3": "L3 (analógico)",
+        "btn_left_stick": "Inclinação do analógico esquerdo",
         "btn_share": "Compartilhar / Criar",
         "btn_cross": "Cruz (✕)",
         "btn_circle": "Círculo (○)",
@@ -892,7 +922,9 @@ const STRINGS = {
         "btn_square": "Quadrado (□)",
         "btn_r1": "R1",
         "btn_r2_press": "R2 (pressionado)",
+        "btn_right_trigger": "R2 (pressão analógica)",
         "btn_r3": "R3 (analógico)",
+        "btn_right_stick": "Inclinação do analógico direito",
         "btn_options": "Options",
         "btn_ps": "PS",
         "group_left_side": "Lado esquerdo",
@@ -986,7 +1018,9 @@ const STRINGS = {
         "btn_dpad": "방향 패드",
         "btn_l1": "L1",
         "btn_l2_press": "L2 (누름)",
+        "btn_left_trigger": "L2 (아날로그 누름)",
         "btn_l3": "L3 (스틱)",
+        "btn_left_stick": "왼쪽 스틱 기울임",
         "btn_share": "공유 / 만들기",
         "btn_cross": "✕ (크로스)",
         "btn_circle": "○ (서클)",
@@ -994,7 +1028,9 @@ const STRINGS = {
         "btn_square": "□ (스퀘어)",
         "btn_r1": "R1",
         "btn_r2_press": "R2 (누름)",
+        "btn_right_trigger": "R2 (아날로그 누름)",
         "btn_r3": "R3 (스틱)",
+        "btn_right_stick": "오른쪽 스틱 기울임",
         "btn_options": "옵션",
         "btn_ps": "PS",
         "group_left_side": "왼쪽",
@@ -1350,6 +1386,12 @@ function LedVisualizerSection({ t }) {
 // fine-grained control and because SliderField couldn't render a handle for
 // this particular value at all (see the git history on this file).
 const BT_CHUNK_MS_CHOICES = [10, 20, 30];
+// Mirrors haptics_engine.py's BUTTON_CLICK_HZ(_MIN/_MAX) - step=20 keeps this
+// to 18 positions, under the ~19-20 threshold where SliderField's handle
+// stops rendering (see the other sliders' history in this file).
+const BUTTON_CLICK_HZ_DEFAULT = 150;
+const BUTTON_CLICK_HZ_MIN = 60;
+const BUTTON_CLICK_HZ_MAX = 400;
 function decimalsFor(step) {
     const s = step.toString();
     const i = s.indexOf(".");
@@ -1407,13 +1449,17 @@ function BandSection({ band, title, t }) {
 }
 // Real evdev button codes (confirmed via `python3 -c "from evdev import ecodes"`,
 // matching ui.py's LEFT_BUTTON_OPTIONS/RIGHT_BUTTON_OPTIONS and
-// haptics_engine.py's DPAD_VIRTUAL_CODE) - button_haptics config keys are
-// str(code) on the Python side.
+// haptics_engine.py's DPAD_VIRTUAL_CODE/LEFT_STICK_VIRTUAL_CODE/
+// RIGHT_STICK_VIRTUAL_CODE/LEFT_TRIGGER_VIRTUAL_CODE/
+// RIGHT_TRIGGER_VIRTUAL_CODE) - button_haptics config keys are str(code) on
+// the Python side.
 const LEFT_BUTTON_OPTIONS = [
     ["btn_dpad", -1],
     ["btn_l1", 310],
     ["btn_l2_press", 312],
+    ["btn_left_trigger", -4],
     ["btn_l3", 317],
+    ["btn_left_stick", -2],
     ["btn_share", 314],
 ];
 const RIGHT_BUTTON_OPTIONS = [
@@ -1423,14 +1469,17 @@ const RIGHT_BUTTON_OPTIONS = [
     ["btn_square", 308],
     ["btn_r1", 311],
     ["btn_r2_press", 313],
+    ["btn_right_trigger", -5],
     ["btn_r3", 318],
+    ["btn_right_stick", -3],
     ["btn_options", 315],
     ["btn_ps", 316],
 ];
 function ButtonHapticRow({ labelKey, code, t, entry, onChange }) {
     const onToggle = (value) => onChange(code, { ...entry, enabled: value });
     const onStrength = (value) => onChange(code, { ...entry, strength: value });
-    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: t(labelKey), checked: entry.enabled, onChange: onToggle }) }), entry.enabled && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t("trig_param_strength"), value: entry.strength, min: 0.0, max: 1.0, step: 0.05, notchTicksVisible: false, onChange: onStrength }) }))] }));
+    const onClickHz = (value) => onChange(code, { ...entry, click_hz: value });
+    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: t(labelKey), checked: entry.enabled, onChange: onToggle }) }), entry.enabled && (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t("trig_param_strength"), value: entry.strength, min: 0.0, max: 1.0, step: 0.05, notchTicksVisible: false, onChange: onStrength }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t("trig_param_frequency"), value: entry.click_hz, min: BUTTON_CLICK_HZ_MIN, max: BUTTON_CLICK_HZ_MAX, step: 20, notchTicksVisible: false, onChange: onClickHz }) })] }))] }));
 }
 function ButtonHapticsSection({ t }) {
     const [entries, setEntries] = SP_REACT.useState({});
@@ -1439,15 +1488,19 @@ function ButtonHapticsSection({ t }) {
             const fetched = await getButtonHaptics();
             const snapped = {};
             for (const [code, entry] of Object.entries(fetched)) {
-                snapped[code] = { ...entry, strength: snapToStep(entry.strength, 0.0, 0.05) };
+                snapped[code] = {
+                    ...entry,
+                    strength: snapToStep(entry.strength, 0.0, 0.05),
+                    click_hz: snapToStep(entry.click_hz ?? BUTTON_CLICK_HZ_DEFAULT, BUTTON_CLICK_HZ_MIN, 20),
+                };
             }
             setEntries(snapped);
         })();
     }, []);
-    const entryFor = (code) => entries[String(code)] ?? { enabled: false, strength: 0.4 };
+    const entryFor = (code) => entries[String(code)] ?? { enabled: false, strength: 0.4, click_hz: BUTTON_CLICK_HZ_DEFAULT };
     const onRowChange = async (code, entry) => {
         setEntries((e) => ({ ...e, [String(code)]: entry }));
-        await setButtonHaptic(String(code), entry.enabled, entry.strength);
+        await setButtonHaptic(String(code), entry.enabled, entry.strength, entry.click_hz);
     };
     const renderGroup = (options) => options.map(([labelKey, code]) => (SP_JSX.jsx(ButtonHapticRow, { labelKey: labelKey, code: code, t: t, entry: entryFor(code), onChange: onRowChange }, code)));
     return (SP_JSX.jsxs(CollapsibleSection, { title: t("button_haptic_title"), t: t, children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("span", { style: { fontSize: "0.85em", opacity: 0.75 }, children: t("group_left_side") }) }), renderGroup(LEFT_BUTTON_OPTIONS), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("span", { style: { fontSize: "0.85em", opacity: 0.75 }, children: t("group_right_side") }) }), renderGroup(RIGHT_BUTTON_OPTIONS)] }));

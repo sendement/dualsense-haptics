@@ -42,6 +42,11 @@ RATE_DIRECT = 48000
 CHUNK_MS_DIRECT = 20
 CHUNK_SAMPLES_DIRECT = RATE_DIRECT * CHUNK_MS_DIRECT // 1000
 BUTTON_CLICK_HZ = 150
+# User-adjustable per-button click tone range - see _button_click_targets()
+# and DEFAULT_CONFIG's button_haptics comment. Low end reads as a dull/muffled
+# thump, high end as a bright/ringing tick.
+BUTTON_CLICK_HZ_MIN = 60
+BUTTON_CLICK_HZ_MAX = 400
 
 # Direct-audio (Bluetooth) path: same idea, over a community-reverse-
 # engineered BT HID haptics protocol (github.com/egormanga/SAxense) rather
@@ -74,7 +79,12 @@ DEFAULT_CONFIG = {
     "treble": {"attack": 0.95, "release": 0.55, "lo": 0.003, "hi": 0.045, "gamma": 0.7},
     "bass_ceiling": {"attack_s": 0.08, "release_s": 2.5},
     "treble_ceiling": {"attack_s": 0.05, "release_s": 2.0},
-    # button code (str, JSON-friendly) -> {"enabled": bool, "strength": float}.
+    # button code (str, JSON-friendly) -> {"enabled": bool, "strength": float,
+    # "click_hz": float}. click_hz only matters on the literal-PCM sessions
+    # (_session_direct_audio/_session_bt_direct_audio/_run_bt_proxy_saxense),
+    # which mix the click straight into the outgoing audio and so can give it
+    # any tone (BUTTON_CLICK_HZ_MIN..MAX); _session_ff/_run_bt_proxy_envelope
+    # drive a single fixed-frequency FF_RUMBLE effect instead and ignore it.
     # Empty by default - no button feedback until the user picks one.
     "button_haptics": {},
     # USB only - see find_dualsense_sink() and HapticsEngine._session_direct_audio.
@@ -97,6 +107,40 @@ DEFAULT_CONFIG = {
 
 BUTTON_ATTACK = 0.7
 BUTTON_RELEASE = 0.5
+
+
+def _button_click_targets(cfg, held_keys, default_hz, held_scale=None):
+    """Per side, the strength (and matching click_hz tone) of whichever held,
+    enabled button currently has the highest strength on that side - shared
+    by every session (FF_RUMBLE included - the tone it computes just goes
+    unused there) so button_haptics only has one place its target-selection
+    logic lives. Picking one tone per side (not mixing every held button's
+    own tone together) keeps this simple and matches how the strength itself
+    already collapses to a single per-side value via max().
+
+    held_scale (optional) multiplies a code's configured strength by a 0..1
+    factor instead of applying it at fixed intensity - used for
+    LEFT_STICK_VIRTUAL_CODE/RIGHT_STICK_VIRTUAL_CODE so a stick's feedback
+    actually tracks how far it's tilted rather than being all-or-nothing
+    like a real button."""
+    strong_target = weak_target = 0.0
+    strong_hz = weak_hz = default_hz
+    for code_str, entry in cfg["button_haptics"].items():
+        code = int(code_str)
+        if not entry.get("enabled") or not held_keys.get(code, False):
+            continue
+        side = BUTTON_SIDE.get(code, "weak")
+        strength = entry.get("strength", 0.4)
+        if held_scale is not None:
+            strength *= held_scale.get(code, 1.0)
+        click_hz = entry.get("click_hz", default_hz)
+        if side == "strong":
+            if strength >= strong_target:
+                strong_target, strong_hz = strength, click_hz
+        else:
+            if strength >= weak_target:
+                weak_target, weak_hz = strength, click_hz
+    return strong_target, strong_hz, weak_target, weak_hz
 
 
 def _led_smooth(mag, env, attack, release, gamma):
@@ -128,6 +172,76 @@ BUTTON_SIDE = {
 # negative) represents "any D-pad direction held" as a single virtual entry.
 DPAD_VIRTUAL_CODE = -1
 BUTTON_SIDE[DPAD_VIRTUAL_CODE] = "strong"
+
+# Same idea as DPAD_VIRTUAL_CODE, for the analog sticks (ABS_X/Y left,
+# ABS_RX/RY right) - "held" is deflection past STICK_DEADZONE, and unlike a
+# real button, button_haptics' own "strength" gets scaled by how far the
+# stick is currently pushed (see _button_click_targets' held_scale param and
+# _analog_held_scale()) rather than applied at a fixed level. Same idea for
+# the analog triggers (L2/R2's *pull amount*, not the digital press already
+# covered by btn_l2_press/btn_r2_press/BTN_TL2/BTN_TR2 above).
+LEFT_STICK_VIRTUAL_CODE = -2
+RIGHT_STICK_VIRTUAL_CODE = -3
+LEFT_TRIGGER_VIRTUAL_CODE = -4
+RIGHT_TRIGGER_VIRTUAL_CODE = -5
+BUTTON_SIDE[LEFT_STICK_VIRTUAL_CODE] = "strong"
+BUTTON_SIDE[RIGHT_STICK_VIRTUAL_CODE] = "weak"
+BUTTON_SIDE[LEFT_TRIGGER_VIRTUAL_CODE] = "strong"
+BUTTON_SIDE[RIGHT_TRIGGER_VIRTUAL_CODE] = "weak"
+STICK_DEADZONE = 0.15
+
+
+# Sticks are bipolar (rest at their own center, ABS_X/Y/RX/RY); the analog
+# triggers are unipolar (rest at their own min, ABS_Z=L2/ABS_RZ=R2) - both
+# get normalized to 0..1 the same way (see _init_analog_raw's axis_info),
+# just with a different (base, scale) pair per axis shape.
+_ANALOG_STICK_AXES = (ecodes.ABS_X, ecodes.ABS_Y, ecodes.ABS_RX, ecodes.ABS_RY)
+_ANALOG_TRIGGER_AXES = (ecodes.ABS_Z, ecodes.ABS_RZ)
+
+
+def _init_analog_raw(dev):
+    """Queried once per session (the axis range doesn't change mid-session,
+    same reasoning as find_led_paths()'s own one-time call) - a raw per-
+    axis-code dict seeded at each axis's own resting value, plus the (base,
+    scale) pair needed to normalize later reads to 0..1 via (raw - base) /
+    scale, keyed by the same evdev axis codes. See _analog_held_scale()."""
+    raw, axis_info = {}, {}
+    for code in _ANALOG_STICK_AXES:
+        info = dev.absinfo(code)
+        base = (info.min + info.max) / 2.0
+        axis_info[code] = (base, (info.max - info.min) / 2.0 or 1.0)
+        raw[code] = base
+    for code in _ANALOG_TRIGGER_AXES:
+        info = dev.absinfo(code)
+        axis_info[code] = (info.min, (info.max - info.min) or 1.0)
+        raw[code] = info.min
+    return raw, axis_info
+
+
+def _deadzone_rescale(norm, deadzone):
+    """0..1 in, 0..1 out - ramps from 0 right past `deadzone` up to 1.0 at
+    norm=1, instead of jumping straight to `deadzone`. Shared by every
+    analog axis this app turns into proportional button-haptics feedback."""
+    if norm < deadzone:
+        return 0.0
+    return min(1.0, (norm - deadzone) / (1.0 - deadzone))
+
+
+def _analog_held_scale(raw, axis_info, deadzone=STICK_DEADZONE):
+    """held_scale dict (see _button_click_targets) for all four analog
+    virtual codes at once - LEFT/RIGHT_STICK_VIRTUAL_CODE (2D deflection
+    magnitude) and LEFT/RIGHT_TRIGGER_VIRTUAL_CODE (1D pull amount)."""
+    def axis_norm(code):
+        base, scale = axis_info[code]
+        return (raw[code] - base) / scale
+    left_stick = _deadzone_rescale(math.hypot(axis_norm(ecodes.ABS_X), axis_norm(ecodes.ABS_Y)), deadzone)
+    right_stick = _deadzone_rescale(math.hypot(axis_norm(ecodes.ABS_RX), axis_norm(ecodes.ABS_RY)), deadzone)
+    left_trigger = _deadzone_rescale(axis_norm(ecodes.ABS_Z), deadzone)
+    right_trigger = _deadzone_rescale(axis_norm(ecodes.ABS_RZ), deadzone)
+    return {
+        LEFT_STICK_VIRTUAL_CODE: left_stick, RIGHT_STICK_VIRTUAL_CODE: right_stick,
+        LEFT_TRIGGER_VIRTUAL_CODE: left_trigger, RIGHT_TRIGGER_VIRTUAL_CODE: right_trigger,
+    }
 
 
 # Sony's USB vendor/product ID for the DualSense - matched instead of the
@@ -594,7 +708,6 @@ class HapticsEngine(threading.Thread):
         stereo_bytes = chunk_samples * 2 * 2
         stereo_fmt = f"<{chunk_samples * 2}h"
         quad_fmt = f"<{chunk_samples * 4}h"
-        phase_step = 2 * math.pi * BUTTON_CLICK_HZ / rate
 
         audio_prefix = _audio_subprocess_prefix()
         parec = subprocess.Popen(
@@ -612,7 +725,8 @@ class HapticsEngine(threading.Thread):
         button_strong_env = button_weak_env = 0.0
         held_keys = {}
         hat_x = hat_y = 0
-        phase = 0.0
+        analog_raw, analog_axis_info = _init_analog_raw(dev)
+        strong_phase = weak_phase = 0.0
 
         try:
             while not self._stop_event.is_set():
@@ -641,6 +755,12 @@ class HapticsEngine(threading.Thread):
                         else:
                             hat_y = ev.value
                         held_keys[DPAD_VIRTUAL_CODE] = hat_x != 0 or hat_y != 0
+                    elif ev.type == ecodes.EV_ABS and ev.code in analog_raw:
+                        analog_raw[ev.code] = ev.value
+
+                analog_scale = _analog_held_scale(analog_raw, analog_axis_info)
+                for _code, _mag in analog_scale.items():
+                    held_keys[_code] = _mag > 0
 
                 samples = struct.unpack(stereo_fmt, data)
                 left_in = [s / 32768.0 for s in samples[0::2]]
@@ -650,40 +770,36 @@ class HapticsEngine(threading.Thread):
 
                 # Same per-side button feedback as the FF path (BUTTON_SIDE),
                 # just mixed in as a short tone instead of an FF magnitude.
-                button_strong_target = 0.0
-                button_weak_target = 0.0
-                for code_str, entry in cfg["button_haptics"].items():
-                    if not entry.get("enabled") or not held_keys.get(int(code_str), False):
-                        continue
-                    side = BUTTON_SIDE.get(int(code_str), "weak")
-                    strength = entry.get("strength", 0.4)
-                    if side == "strong":
-                        button_strong_target = max(button_strong_target, strength)
-                    else:
-                        button_weak_target = max(button_weak_target, strength)
+                button_strong_target, button_strong_hz, button_weak_target, button_weak_hz = \
+                    _button_click_targets(cfg, held_keys, BUTTON_CLICK_HZ, analog_scale)
                 button_strong_env += (button_strong_target - button_strong_env) * (
                     BUTTON_ATTACK if button_strong_target > button_strong_env else BUTTON_RELEASE)
                 button_weak_env += (button_weak_target - button_weak_env) * (
                     BUTTON_ATTACK if button_weak_target > button_weak_env else BUTTON_RELEASE)
+                strong_phase_step = 2 * math.pi * button_strong_hz / rate
+                weak_phase_step = 2 * math.pi * button_weak_hz / rate
 
                 frame = [0] * (chunk_samples * 4)
                 peak_left = peak_right = 0.0
                 for i in range(chunk_samples):
                     l = left[i] * gain
                     r = right[i] * gain
-                    click = math.sin(phase)
-                    phase += phase_step
+                    strong_click = math.sin(strong_phase)
+                    weak_click = math.sin(weak_phase)
+                    strong_phase += strong_phase_step
+                    weak_phase += weak_phase_step
                     if button_strong_env > 0.001:
-                        l += click * button_strong_env
+                        l += strong_click * button_strong_env
                     if button_weak_env > 0.001:
-                        r += click * button_weak_env
+                        r += weak_click * button_weak_env
                     l = math.tanh(l)
                     r = math.tanh(r)
                     peak_left = max(peak_left, abs(l))
                     peak_right = max(peak_right, abs(r))
                     frame[i * 4 + 2] = int(l * 32767)
                     frame[i * 4 + 3] = int(r * 32767)
-                phase = math.fmod(phase, 2 * math.pi)
+                strong_phase = math.fmod(strong_phase, 2 * math.pi)
+                weak_phase = math.fmod(weak_phase, 2 * math.pi)
 
                 paplay.stdin.write(struct.pack(quad_fmt, *frame))
                 paplay.stdin.flush()
@@ -723,7 +839,6 @@ class HapticsEngine(threading.Thread):
         chunk_samples = rate * chunk_ms // 1000
         stereo_bytes = chunk_samples * 2 * 2
         stereo_fmt = f"<{chunk_samples * 2}h"
-        phase_step = 2 * math.pi * BT_BUTTON_CLICK_HZ / rate
 
         # os.open with plain O_WRONLY (not the "wb"-mode open(), which
         # implies O_CREAT) - never silently create a regular file if this
@@ -744,7 +859,8 @@ class HapticsEngine(threading.Thread):
         button_strong_env = button_weak_env = 0.0
         held_keys = {}
         hat_x = hat_y = 0
-        phase = 0.0
+        analog_raw, analog_axis_info = _init_analog_raw(dev)
+        strong_phase = weak_phase = 0.0
         # Immersive Lighting only - see _run_bt_proxy_saxense's identical
         # block for the full rationale (this path has no existing band-split
         # either, SAxense drives the motors from literal PCM). Uses the
@@ -784,6 +900,12 @@ class HapticsEngine(threading.Thread):
                         else:
                             hat_y = ev.value
                         held_keys[DPAD_VIRTUAL_CODE] = hat_x != 0 or hat_y != 0
+                    elif ev.type == ecodes.EV_ABS and ev.code in analog_raw:
+                        analog_raw[ev.code] = ev.value
+
+                analog_scale = _analog_held_scale(analog_raw, analog_axis_info)
+                for _code, _mag in analog_scale.items():
+                    held_keys[_code] = _mag > 0
 
                 samples = struct.unpack(stereo_fmt, data)
                 left_in = samples[0::2]
@@ -823,21 +945,14 @@ class HapticsEngine(threading.Thread):
                     led_mid_mag = min(1.0, led_mid_mag * led_gain)
                     led_treble_mag = min(1.0, led_treble_mag * led_gain)
 
-                button_strong_target = 0.0
-                button_weak_target = 0.0
-                for code_str, entry in cfg["button_haptics"].items():
-                    if not entry.get("enabled") or not held_keys.get(int(code_str), False):
-                        continue
-                    side = BUTTON_SIDE.get(int(code_str), "weak")
-                    strength = entry.get("strength", 0.4)
-                    if side == "strong":
-                        button_strong_target = max(button_strong_target, strength)
-                    else:
-                        button_weak_target = max(button_weak_target, strength)
+                button_strong_target, button_strong_hz, button_weak_target, button_weak_hz = \
+                    _button_click_targets(cfg, held_keys, BT_BUTTON_CLICK_HZ, analog_scale)
                 button_strong_env += (button_strong_target - button_strong_env) * (
                     BUTTON_ATTACK if button_strong_target > button_strong_env else BUTTON_RELEASE)
                 button_weak_env += (button_weak_target - button_weak_env) * (
                     BUTTON_ATTACK if button_weak_target > button_weak_env else BUTTON_RELEASE)
+                strong_phase_step = 2 * math.pi * button_strong_hz / rate
+                weak_phase_step = 2 * math.pi * button_weak_hz / rate
 
                 if led_on:
                     led_cfg = cfg.get("led_visualizer", {})
@@ -856,19 +971,22 @@ class HapticsEngine(threading.Thread):
                 for i in range(chunk_samples):
                     l = (left_in[i] / 32768.0) * gain
                     r = (right_in[i] / 32768.0) * gain
-                    click = math.sin(phase)
-                    phase += phase_step
+                    strong_click = math.sin(strong_phase)
+                    weak_click = math.sin(weak_phase)
+                    strong_phase += strong_phase_step
+                    weak_phase += weak_phase_step
                     if button_strong_env > 0.001:
-                        l += click * button_strong_env
+                        l += strong_click * button_strong_env
                     if button_weak_env > 0.001:
-                        r += click * button_weak_env
+                        r += weak_click * button_weak_env
                     l = math.tanh(l)
                     r = math.tanh(r)
                     peak_left = max(peak_left, abs(l))
                     peak_right = max(peak_right, abs(r))
                     out[i * 2] = int(l * 127) & 0xFF
                     out[i * 2 + 1] = int(r * 127) & 0xFF
-                phase = math.fmod(phase, 2 * math.pi)
+                strong_phase = math.fmod(strong_phase, 2 * math.pi)
+                weak_phase = math.fmod(weak_phase, 2 * math.pi)
 
                 saxense.stdin.write(bytes(out))
                 saxense.stdin.flush()
@@ -973,6 +1091,7 @@ class HapticsEngine(threading.Thread):
         button_strong_env = button_weak_env = 0.0
         held_keys = {}
         hat_x = hat_y = 0
+        analog_raw, analog_axis_info = _init_analog_raw(dev)
         update_hz = 1000.0 / CHUNK_MS
         fmt = f"<{CHUNK_SAMPLES * CHANNELS}h"
         last_status_emit = 0.0
@@ -1002,6 +1121,12 @@ class HapticsEngine(threading.Thread):
                                 else:
                                     hat_y = ev.value
                                 held_keys[DPAD_VIRTUAL_CODE] = hat_x != 0 or hat_y != 0
+                            elif ev.type == ecodes.EV_ABS and ev.code in analog_raw:
+                                analog_raw[ev.code] = ev.value
+
+                        analog_scale = _analog_held_scale(analog_raw, analog_axis_info)
+                        for _code, _mag in analog_scale.items():
+                            held_keys[_code] = _mag > 0
 
                         samples = struct.unpack(fmt, data)
                         left = samples[0::2]
@@ -1036,17 +1161,8 @@ class HapticsEngine(threading.Thread):
                         strong_mag = min(1.0, strong_mag * gain)
                         weak_mag = min(1.0, weak_mag * gain)
 
-                        button_strong_target = 0.0
-                        button_weak_target = 0.0
-                        for code_str, entry in cfg["button_haptics"].items():
-                            if not entry.get("enabled") or not held_keys.get(int(code_str), False):
-                                continue
-                            side = BUTTON_SIDE.get(int(code_str), "weak")
-                            strength = entry.get("strength", 0.4)
-                            if side == "strong":
-                                button_strong_target = max(button_strong_target, strength)
-                            else:
-                                button_weak_target = max(button_weak_target, strength)
+                        button_strong_target, _, button_weak_target, _ = \
+                            _button_click_targets(cfg, held_keys, BUTTON_CLICK_HZ, analog_scale)
 
                         button_strong_env += (button_strong_target - button_strong_env) * (
                             BUTTON_ATTACK if button_strong_target > button_strong_env else BUTTON_RELEASE)
@@ -1101,7 +1217,6 @@ class HapticsEngine(threading.Thread):
         chunk_samples = rate * chunk_ms // 1000
         stereo_bytes = chunk_samples * 2 * 2
         stereo_fmt = f"<{chunk_samples * 2}h"
-        phase_step = 2 * math.pi * BT_BUTTON_CLICK_HZ / rate
 
         hidraw_file = os.fdopen(os.open(clone_hidraw, os.O_WRONLY), "wb", buffering=0)
         audio_prefix = _audio_subprocess_prefix()
@@ -1117,7 +1232,8 @@ class HapticsEngine(threading.Thread):
         button_strong_env = button_weak_env = 0.0
         held_keys = {}
         hat_x = hat_y = 0
-        phase = 0.0
+        analog_raw, analog_axis_info = _init_analog_raw(dev)
+        strong_phase = weak_phase = 0.0
         last_status_emit = 0.0
         # Immersive Lighting only - this path has no existing band-split
         # (SAxense drives the motors from literal PCM, not a synthesized
@@ -1159,6 +1275,12 @@ class HapticsEngine(threading.Thread):
                                 else:
                                     hat_y = ev.value
                                 held_keys[DPAD_VIRTUAL_CODE] = hat_x != 0 or hat_y != 0
+                            elif ev.type == ecodes.EV_ABS and ev.code in analog_raw:
+                                analog_raw[ev.code] = ev.value
+
+                        analog_scale = _analog_held_scale(analog_raw, analog_axis_info)
+                        for _code, _mag in analog_scale.items():
+                            held_keys[_code] = _mag > 0
 
                         samples = struct.unpack(stereo_fmt, data)
                         left_in = samples[0::2]
@@ -1206,40 +1328,36 @@ class HapticsEngine(threading.Thread):
                             led_mid_mag = min(1.0, led_mid_mag * led_gain)
                             led_treble_mag = min(1.0, led_treble_mag * led_gain)
 
-                        button_strong_target = 0.0
-                        button_weak_target = 0.0
-                        for code_str, entry in cfg["button_haptics"].items():
-                            if not entry.get("enabled") or not held_keys.get(int(code_str), False):
-                                continue
-                            side = BUTTON_SIDE.get(int(code_str), "weak")
-                            strength = entry.get("strength", 0.4)
-                            if side == "strong":
-                                button_strong_target = max(button_strong_target, strength)
-                            else:
-                                button_weak_target = max(button_weak_target, strength)
+                        button_strong_target, button_strong_hz, button_weak_target, button_weak_hz = \
+                            _button_click_targets(cfg, held_keys, BT_BUTTON_CLICK_HZ, analog_scale)
                         button_strong_env += (button_strong_target - button_strong_env) * (
                             BUTTON_ATTACK if button_strong_target > button_strong_env else BUTTON_RELEASE)
                         button_weak_env += (button_weak_target - button_weak_env) * (
                             BUTTON_ATTACK if button_weak_target > button_weak_env else BUTTON_RELEASE)
+                        strong_phase_step = 2 * math.pi * button_strong_hz / rate
+                        weak_phase_step = 2 * math.pi * button_weak_hz / rate
 
                         out = bytearray(chunk_samples * 2)
                         peak_left = peak_right = 0.0
                         for i in range(chunk_samples):
                             l = (left_in[i] / 32768.0) * gain
                             r = (right_in[i] / 32768.0) * gain
-                            click = math.sin(phase)
-                            phase += phase_step
+                            strong_click = math.sin(strong_phase)
+                            weak_click = math.sin(weak_phase)
+                            strong_phase += strong_phase_step
+                            weak_phase += weak_phase_step
                             if button_strong_env > 0.001:
-                                l += click * button_strong_env
+                                l += strong_click * button_strong_env
                             if button_weak_env > 0.001:
-                                r += click * button_weak_env
+                                r += weak_click * button_weak_env
                             l = math.tanh(l)
                             r = math.tanh(r)
                             peak_left = max(peak_left, abs(l))
                             peak_right = max(peak_right, abs(r))
                             out[i * 2] = int(l * 127) & 0xFF
                             out[i * 2 + 1] = int(r * 127) & 0xFF
-                        phase = math.fmod(phase, 2 * math.pi)
+                        strong_phase = math.fmod(strong_phase, 2 * math.pi)
+                        weak_phase = math.fmod(weak_phase, 2 * math.pi)
 
                         saxense.stdin.write(bytes(out))
                         saxense.stdin.flush()
@@ -1305,6 +1423,7 @@ class HapticsEngine(threading.Thread):
         button_strong_env = button_weak_env = 0.0
         held_keys = {}
         hat_x = hat_y = 0
+        analog_raw, analog_axis_info = _init_analog_raw(dev)
         update_hz = 1000.0 / CHUNK_MS
         fmt = f"<{CHUNK_SAMPLES * CHANNELS}h"
 
@@ -1345,6 +1464,12 @@ class HapticsEngine(threading.Thread):
                         else:
                             hat_y = ev.value
                         held_keys[DPAD_VIRTUAL_CODE] = hat_x != 0 or hat_y != 0
+                    elif ev.type == ecodes.EV_ABS and ev.code in analog_raw:
+                        analog_raw[ev.code] = ev.value
+
+                analog_scale = _analog_held_scale(analog_raw, analog_axis_info)
+                for _code, _mag in analog_scale.items():
+                    held_keys[_code] = _mag > 0
 
                 samples = struct.unpack(fmt, data)
                 left = samples[0::2]
@@ -1383,17 +1508,8 @@ class HapticsEngine(threading.Thread):
                 # motor on its physical side (BUTTON_SIDE), at its own
                 # strength - several held at once on the same side just take
                 # the loudest rather than stacking past 1.0.
-                button_strong_target = 0.0
-                button_weak_target = 0.0
-                for code_str, entry in cfg["button_haptics"].items():
-                    if not entry.get("enabled") or not held_keys.get(int(code_str), False):
-                        continue
-                    side = BUTTON_SIDE.get(int(code_str), "weak")
-                    strength = entry.get("strength", 0.4)
-                    if side == "strong":
-                        button_strong_target = max(button_strong_target, strength)
-                    else:
-                        button_weak_target = max(button_weak_target, strength)
+                button_strong_target, _, button_weak_target, _ = \
+                    _button_click_targets(cfg, held_keys, BUTTON_CLICK_HZ, analog_scale)
 
                 button_strong_env += (button_strong_target - button_strong_env) * (
                     BUTTON_ATTACK if button_strong_target > button_strong_env else BUTTON_RELEASE)
