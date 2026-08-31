@@ -52,6 +52,14 @@ BT_RATE = 3000
 BT_CHUNK_MS = 20
 BT_CHUNK_SAMPLES = BT_RATE * BT_CHUNK_MS // 1000
 BT_BUTTON_CLICK_HZ = 150
+# User-adjustable range for direct_audio.bt_chunk_ms (see _session_bt_direct_
+# audio/_run_bt_proxy_saxense, where the configured value overrides
+# BT_CHUNK_MS above) - smaller trades latency for more Bluetooth reports/sec
+# (undoing the traffic work in forward_trigger_only()'s dedup), larger trades
+# the reverse. Bounded to values close to the tested default rather than
+# letting either tradeoff run unchecked.
+BT_CHUNK_MS_MIN = 10
+BT_CHUNK_MS_MAX = 30
 
 DEFAULT_CONFIG = {
     "master_gain": 1.0,
@@ -66,7 +74,8 @@ DEFAULT_CONFIG = {
     "button_haptics": {},
     # USB only - see find_dualsense_sink() and HapticsEngine._session_direct_audio.
     # bt_enabled is separate and opt-in (default off) - see BT_RATE above.
-    "direct_audio": {"enabled": True, "gain": 5.0, "cutoff_hz": 500, "bt_enabled": False},
+    "direct_audio": {"enabled": True, "gain": 5.0, "cutoff_hz": 500, "bt_enabled": False,
+                      "bt_chunk_ms": BT_CHUNK_MS},
     # Bluetooth only, opt-in - see bt_hid_proxy.py and HapticsEngine._session_bt_proxy.
     "bt_hid_proxy": {"enabled": False},
     # Requires bt_hid_proxy (exclusive device access to safely fight Steam's
@@ -701,7 +710,12 @@ class HapticsEngine(threading.Thread):
         and formats the actual HID reports itself; this just feeds it gain-
         staged PCM and points its output straight at the hidraw device."""
         rate = BT_RATE
-        chunk_samples = BT_CHUNK_SAMPLES
+        # Fixed for this session's lifetime (reread on the next reconnect,
+        # like `rate` above) - the read buffer sizes/formats below are
+        # derived from it once, not something to recompute mid-stream.
+        chunk_ms = max(BT_CHUNK_MS_MIN, min(BT_CHUNK_MS_MAX,
+                        self.config.get("direct_audio", {}).get("bt_chunk_ms", BT_CHUNK_MS)))
+        chunk_samples = rate * chunk_ms // 1000
         stereo_bytes = chunk_samples * 2 * 2
         stereo_fmt = f"<{chunk_samples * 2}h"
         phase_step = 2 * math.pi * BT_BUTTON_CLICK_HZ / rate
@@ -736,7 +750,7 @@ class HapticsEngine(threading.Thread):
         led_bass_ceil = led_treble_ceil = led_mid_ceil = 0.0
         led_bass_env = led_treble_env = led_mid_env = 0.0
         led_bass_smooth = led_mid_smooth = led_treble_smooth = 0.0
-        led_update_hz = 1000.0 / BT_CHUNK_MS
+        led_update_hz = 1000.0 / chunk_ms
         lightbar_path, player_led_paths = find_led_paths(dev)
         led_last_write = 0.0
 
@@ -1075,7 +1089,11 @@ class HapticsEngine(threading.Thread):
         doing so raced SAxense's own report for control of the motors and
         drowned it out, even though they're technically distinct report IDs."""
         rate = BT_RATE
-        chunk_samples = BT_CHUNK_SAMPLES
+        # See _session_bt_direct_audio's identical line for why this is
+        # fixed for the session's lifetime rather than reread per tick.
+        chunk_ms = max(BT_CHUNK_MS_MIN, min(BT_CHUNK_MS_MAX,
+                        self.config.get("direct_audio", {}).get("bt_chunk_ms", BT_CHUNK_MS)))
+        chunk_samples = rate * chunk_ms // 1000
         stereo_bytes = chunk_samples * 2 * 2
         stereo_fmt = f"<{chunk_samples * 2}h"
         phase_step = 2 * math.pi * BT_BUTTON_CLICK_HZ / rate
@@ -1105,7 +1123,7 @@ class HapticsEngine(threading.Thread):
         led_bass_ceil = led_treble_ceil = led_mid_ceil = 0.0
         led_bass_env = led_treble_env = led_mid_env = 0.0
         led_bass_smooth = led_mid_smooth = led_treble_smooth = 0.0
-        led_update_hz = 1000.0 / BT_CHUNK_MS
+        led_update_hz = 1000.0 / chunk_ms
 
         try:
             while not self._stop_event.is_set() and self.config.get("bt_hid_proxy", {}).get("enabled", False):

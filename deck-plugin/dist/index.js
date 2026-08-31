@@ -99,6 +99,7 @@ const STRINGS = {
         "trigger_right_title": "Right Trigger (R2)",
         "direct_audio_checkbox": "Play audio straight through the motors",
         "direct_audio_bt_checkbox": "Enable over Bluetooth (experimental)",
+        "label_bt_chunk_ms": "Audio chunk size (ms)",
         "led_visualizer_title": "Immersive Lighting",
         "led_visualizer_checkbox": "Enable Immersive Lighting",
         "label_led_attack": "Reaction Speed",
@@ -165,6 +166,7 @@ const STRINGS = {
         "trigger_right_title": "Правый триггер (R2)",
         "direct_audio_checkbox": "Играть звук напрямую через моторы",
         "direct_audio_bt_checkbox": "Включить по Bluetooth (экспериментально)",
+        "label_bt_chunk_ms": "Размер аудио-чанка (мс)",
         "led_visualizer_title": "Иммерсивная подсветка",
         "led_visualizer_checkbox": "Включить иммерсивную подсветку",
         "label_led_attack": "Скорость реакции",
@@ -231,6 +233,7 @@ const STRINGS = {
         "trigger_right_title": "右扳机 (R2)",
         "direct_audio_checkbox": "直接通过马达播放音频",
         "direct_audio_bt_checkbox": "通过蓝牙启用（实验性）",
+        "label_bt_chunk_ms": "音频块大小（毫秒）",
         "led_visualizer_title": "沉浸式灯光",
         "led_visualizer_checkbox": "启用沉浸式灯光",
         "label_led_attack": "反应速度",
@@ -297,6 +300,7 @@ const STRINGS = {
         "trigger_right_title": "Gatillo derecho (R2)",
         "direct_audio_checkbox": "Reproducir audio directamente en los motores",
         "direct_audio_bt_checkbox": "Activar por Bluetooth (experimental)",
+        "label_bt_chunk_ms": "Tamaño del bloque de audio (ms)",
         "led_visualizer_title": "Iluminación inmersiva",
         "led_visualizer_checkbox": "Activar iluminación inmersiva",
         "label_led_attack": "Velocidad de reacción",
@@ -363,6 +367,7 @@ const STRINGS = {
         "trigger_right_title": "Rechter Trigger (R2)",
         "direct_audio_checkbox": "Audio direkt über die Motoren abspielen",
         "direct_audio_bt_checkbox": "Über Bluetooth aktivieren (experimentell)",
+        "label_bt_chunk_ms": "Audio-Chunkgröße (ms)",
         "led_visualizer_title": "Immersive Beleuchtung",
         "led_visualizer_checkbox": "Immersive Beleuchtung aktivieren",
         "label_led_attack": "Reaktionsgeschwindigkeit",
@@ -429,6 +434,7 @@ const STRINGS = {
         "trigger_right_title": "Gâchette droite (R2)",
         "direct_audio_checkbox": "Jouer l'audio directement sur les moteurs",
         "direct_audio_bt_checkbox": "Activer par Bluetooth (expérimental)",
+        "label_bt_chunk_ms": "Taille du bloc audio (ms)",
         "led_visualizer_title": "Éclairage immersif",
         "led_visualizer_checkbox": "Activer l'éclairage immersif",
         "label_led_attack": "Vitesse de réaction",
@@ -495,6 +501,7 @@ const STRINGS = {
         "trigger_right_title": "右トリガー (R2)",
         "direct_audio_checkbox": "音声をモーターに直接再生する",
         "direct_audio_bt_checkbox": "Bluetoothで有効にする（実験的機能）",
+        "label_bt_chunk_ms": "オーディオチャンクサイズ（ms）",
         "led_visualizer_title": "没入型ライティング",
         "led_visualizer_checkbox": "没入型ライティングを有効にする",
         "label_led_attack": "反応速度",
@@ -561,6 +568,7 @@ const STRINGS = {
         "trigger_right_title": "Gatilho direito (R2)",
         "direct_audio_checkbox": "Reproduzir áudio diretamente nos motores",
         "direct_audio_bt_checkbox": "Ativar via Bluetooth (experimental)",
+        "label_bt_chunk_ms": "Tamanho do bloco de áudio (ms)",
         "led_visualizer_title": "Iluminação imersiva",
         "led_visualizer_checkbox": "Ativar iluminação imersiva",
         "label_led_attack": "Velocidade de reação",
@@ -627,6 +635,7 @@ const STRINGS = {
         "trigger_right_title": "오른쪽 트리거 (R2)",
         "direct_audio_checkbox": "오디오를 모터로 직접 재생",
         "direct_audio_bt_checkbox": "블루투스로 활성화 (실험적)",
+        "label_bt_chunk_ms": "오디오 청크 크기 (ms)",
         "led_visualizer_title": "몰입형 조명",
         "led_visualizer_checkbox": "몰입형 조명 활성화",
         "label_led_attack": "반응 속도",
@@ -717,6 +726,7 @@ const applyCustomTrigger = callable("apply_custom_trigger");
 const getDirectAudio = callable("get_direct_audio");
 const setDirectAudioEnabled = callable("set_direct_audio_enabled");
 const setDirectAudioBtEnabled = callable("set_direct_audio_bt_enabled");
+const setBtChunkMs = callable("set_bt_chunk_ms");
 const getLedVisualizer = callable("get_led_visualizer");
 const setLedVisualizerEnabled = callable("set_led_visualizer_enabled");
 const setLedAttack = callable("set_led_attack");
@@ -927,7 +937,9 @@ function CustomTriggerCard({ side, label, t }) {
     return (SP_JSX.jsxs(DFL.PanelSection, { title: `${t("trigger_custom_title")} · ${label}`, children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.DropdownItem, { label: t("mode_label"), rgOptions: TRIGGER_EFFECT_ORDER.map((m) => ({ data: m, label: t(TRIGGER_MODE_LABEL_KEYS[m] ?? m) })), selectedOption: mode, onChange: onModeChange }) }), (TRIGGER_EFFECT_PARAMS[mode] ?? []).map(([key, lo, hi]) => (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: triggerParamLabel(key, t), value: values[key] ?? lo, min: lo, max: hi, step: 1, notchTicksVisible: false, onChange: (v) => onParamChange(key, v) }) }, key))), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: onApply, children: t("btn_apply") }) })] }));
 }
 function DirectAudioSection({ t }) {
-    const [directAudio, setDirectAudioState] = SP_REACT.useState({ enabled: true, gain: 5.0, bt_enabled: false });
+    const [directAudio, setDirectAudioState] = SP_REACT.useState({
+        enabled: true, gain: 5.0, bt_enabled: false, bt_chunk_ms: 20,
+    });
     SP_REACT.useEffect(() => {
         (async () => setDirectAudioState(await getDirectAudio()))();
     }, []);
@@ -939,7 +951,11 @@ function DirectAudioSection({ t }) {
         setDirectAudioState((d) => ({ ...d, bt_enabled: value }));
         await setDirectAudioBtEnabled(value);
     };
-    return (SP_JSX.jsxs(DFL.PanelSection, { title: t("direct_audio_title"), children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: `USB — ${t("direct_audio_checkbox")}`, checked: directAudio.enabled, onChange: onUsbToggle }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: t("direct_audio_bt_checkbox"), checked: directAudio.bt_enabled, onChange: onBtToggle }) })] }));
+    const onChunkMsChange = async (value) => {
+        setDirectAudioState((d) => ({ ...d, bt_chunk_ms: value }));
+        await setBtChunkMs(value);
+    };
+    return (SP_JSX.jsxs(DFL.PanelSection, { title: t("direct_audio_title"), children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: `USB — ${t("direct_audio_checkbox")}`, checked: directAudio.enabled, onChange: onUsbToggle }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: t("direct_audio_bt_checkbox"), checked: directAudio.bt_enabled, onChange: onBtToggle }) }), directAudio.bt_enabled && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t("label_bt_chunk_ms"), value: directAudio.bt_chunk_ms, min: 10, max: 30, step: 1, notchTicksVisible: false, onChange: onChunkMsChange }) }))] }));
 }
 function LedVisualizerSection({ t }) {
     const [led, setLed] = SP_REACT.useState({ enabled: false, attack: 0.5, release: 0.08, gamma: 1.8, bass_priority: 0.6 });

@@ -318,7 +318,7 @@ class Plugin:
     async def get_direct_audio(self) -> dict:
         raw = _read_config() or {}
         return raw.get("active", {}).get(
-            "direct_audio", {"enabled": True, "gain": 5.0, "bt_enabled": False})
+            "direct_audio", {"enabled": True, "gain": 5.0, "bt_enabled": False, "bt_chunk_ms": 20})
 
     async def set_direct_audio_enabled(self, value: bool) -> bool:
         raw = _read_config() or {}
@@ -329,6 +329,12 @@ class Plugin:
     async def set_direct_audio_bt_enabled(self, value: bool) -> bool:
         raw = _read_config() or {}
         raw.setdefault("active", {}).setdefault("direct_audio", {})["bt_enabled"] = value
+        _write_config(raw)
+        return True
+
+    async def set_bt_chunk_ms(self, value: int) -> bool:
+        raw = _read_config() or {}
+        raw.setdefault("active", {}).setdefault("direct_audio", {})["bt_chunk_ms"] = value
         _write_config(raw)
         return True
 

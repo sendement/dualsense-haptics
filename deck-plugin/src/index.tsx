@@ -25,6 +25,7 @@ interface DirectAudio {
   enabled: boolean;
   gain: number;
   bt_enabled: boolean;
+  bt_chunk_ms: number;
 }
 
 interface LedVisualizer {
@@ -85,6 +86,7 @@ const applyCustomTrigger = callable<[mode: string, values: Record<string, number
 const getDirectAudio = callable<[], DirectAudio>("get_direct_audio");
 const setDirectAudioEnabled = callable<[value: boolean], boolean>("set_direct_audio_enabled");
 const setDirectAudioBtEnabled = callable<[value: boolean], boolean>("set_direct_audio_bt_enabled");
+const setBtChunkMs = callable<[value: number], boolean>("set_bt_chunk_ms");
 
 const getLedVisualizer = callable<[], LedVisualizer>("get_led_visualizer");
 const setLedVisualizerEnabled = callable<[value: boolean], boolean>("set_led_visualizer_enabled");
@@ -398,7 +400,9 @@ function CustomTriggerCard({ side, label, t }: { side: "left" | "right"; label: 
 }
 
 function DirectAudioSection({ t }: { t: (key: string) => string }) {
-  const [directAudio, setDirectAudioState] = useState<DirectAudio>({ enabled: true, gain: 5.0, bt_enabled: false });
+  const [directAudio, setDirectAudioState] = useState<DirectAudio>({
+    enabled: true, gain: 5.0, bt_enabled: false, bt_chunk_ms: 20,
+  });
 
   useEffect(() => {
     (async () => setDirectAudioState(await getDirectAudio()))();
@@ -414,6 +418,11 @@ function DirectAudioSection({ t }: { t: (key: string) => string }) {
     await setDirectAudioBtEnabled(value);
   };
 
+  const onChunkMsChange = async (value: number) => {
+    setDirectAudioState((d) => ({ ...d, bt_chunk_ms: value }));
+    await setBtChunkMs(value);
+  };
+
   return (
     <PanelSection title={t("direct_audio_title")}>
       <PanelSectionRow>
@@ -422,6 +431,19 @@ function DirectAudioSection({ t }: { t: (key: string) => string }) {
       <PanelSectionRow>
         <ToggleField label={t("direct_audio_bt_checkbox")} checked={directAudio.bt_enabled} onChange={onBtToggle} />
       </PanelSectionRow>
+      {directAudio.bt_enabled && (
+        <PanelSectionRow>
+          <SliderField
+            label={t("label_bt_chunk_ms")}
+            value={directAudio.bt_chunk_ms}
+            min={10}
+            max={30}
+            step={1}
+            notchTicksVisible={false}
+            onChange={onChunkMsChange}
+          />
+        </PanelSectionRow>
+      )}
     </PanelSection>
   );
 }
