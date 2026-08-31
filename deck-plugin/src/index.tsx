@@ -10,6 +10,7 @@ import {
 } from "@decky/ui";
 import { callable, definePlugin } from "@decky/api";
 import { useState, useEffect } from "react";
+import type { ReactNode } from "react";
 import { FaGamepad } from "react-icons/fa";
 import { LANGUAGES, t as translate } from "./i18n";
 
@@ -26,6 +27,21 @@ interface DirectAudio {
   gain: number;
   bt_enabled: boolean;
   bt_chunk_ms: number;
+}
+
+interface BandSettings {
+  lo: number;
+  hi: number;
+  attack: number;
+  release: number;
+  gamma: number;
+  attack_s: number;
+  release_s: number;
+}
+
+interface ButtonHapticEntry {
+  enabled: boolean;
+  strength: number;
 }
 
 interface LedVisualizer {
@@ -53,6 +69,10 @@ type GameProfiles = Record<string, GameProfileEntry>;
 // lifecycle) and reads this on every app-launch event, so it needs to see
 // whatever GameProfilesSection last wrote, not a stale closure snapshot.
 let gameProfilesCache: GameProfiles = {};
+// Same reasoning as gameProfilesCache above - the app-lifetime handler
+// registered in definePlugin() below needs to read this synchronously,
+// outside React, so it can't just be component state.
+let gameProfilesEnabledCache = true;
 
 const startEngine = callable<[], boolean>("start_engine");
 const stopEngine = callable<[], boolean>("stop_engine");
@@ -72,7 +92,6 @@ const getActiveRef = callable<[], string>("get_active_ref");
 const applyRef = callable<[ref: string], boolean>("apply_ref");
 const getGameProfiles = callable<[], GameProfiles>("get_game_profiles");
 const setGameProfile = callable<[app_id: string, name: string, ref: string], boolean>("set_game_profile");
-const clearGameProfile = callable<[app_id: string], boolean>("clear_game_profile");
 
 const listTriggerPresets = callable<[], string[]>("list_trigger_presets");
 const getTriggerPreset = callable<[side: string], string | null>("get_trigger_preset");
@@ -87,6 +106,16 @@ const getDirectAudio = callable<[], DirectAudio>("get_direct_audio");
 const setDirectAudioEnabled = callable<[value: boolean], boolean>("set_direct_audio_enabled");
 const setDirectAudioBtEnabled = callable<[value: boolean], boolean>("set_direct_audio_bt_enabled");
 const setBtChunkMs = callable<[value: number], boolean>("set_bt_chunk_ms");
+const setDirectAudioGain = callable<[value: number], boolean>("set_direct_audio_gain");
+
+const getGameProfilesEnabled = callable<[], boolean>("get_game_profiles_enabled");
+const setGameProfilesEnabled = callable<[value: boolean], boolean>("set_game_profiles_enabled");
+
+const getBandSettings = callable<[band: string], BandSettings>("get_band_settings");
+const setBandParam = callable<[band: string, key: string, value: number], boolean>("set_band_param");
+
+const getButtonHaptics = callable<[], Record<string, ButtonHapticEntry>>("get_button_haptics");
+const setButtonHaptic = callable<[code: string, enabled: boolean, strength: number], boolean>("set_button_haptic");
 
 const getLedVisualizer = callable<[], LedVisualizer>("get_led_visualizer");
 const setLedVisualizerEnabled = callable<[value: boolean], boolean>("set_led_visualizer_enabled");
@@ -273,7 +302,7 @@ function MainSection({ t }: { t: (key: string) => string }) {
       )}
       <PanelSectionRow>
         <SliderField
-          label={t("label_direct_gain")}
+          label={t("label_master_gain")}
           value={gain}
           min={0.2}
           max={2.5}
@@ -332,6 +361,7 @@ function TriggersSection({ t }: { t: (key: string) => string }) {
 function CustomTriggerCard({ side, label, t }: { side: "left" | "right"; label: string; t: (key: string) => string }) {
   const [mode, setMode] = useState<string>("feedback");
   const [values, setValues] = useState<Record<string, number>>(defaultValues("feedback"));
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -369,32 +399,65 @@ function CustomTriggerCard({ side, label, t }: { side: "left" | "right"; label: 
 
   return (
     <PanelSection title={`${t("trigger_custom_title")} · ${label}`}>
-      <PanelSectionRow>
-        <DropdownItem
-          label={t("mode_label")}
-          rgOptions={TRIGGER_EFFECT_ORDER.map((m) => ({ data: m, label: t(TRIGGER_MODE_LABEL_KEYS[m] ?? m) }))}
-          selectedOption={mode}
-          onChange={onModeChange}
-        />
-      </PanelSectionRow>
-      {(TRIGGER_EFFECT_PARAMS[mode] ?? []).map(([key, lo, hi]) => (
-        <PanelSectionRow key={key}>
-          <SliderField
-            label={triggerParamLabel(key, t)}
-            value={values[key] ?? lo}
-            min={lo}
-            max={hi}
-            step={1}
-            notchTicksVisible={false}
-            onChange={(v: number) => onParamChange(key, v)}
-          />
-        </PanelSectionRow>
-      ))}
-      <PanelSectionRow>
-        <ButtonItem layout="below" onClick={onApply}>
-          {t("btn_apply")}
-        </ButtonItem>
-      </PanelSectionRow>
+      <CollapsibleToggle open={detailsOpen} onToggle={() => setDetailsOpen((o) => !o)} t={t} />
+      {detailsOpen && (
+        <>
+          <PanelSectionRow>
+            <DropdownItem
+              label={t("mode_label")}
+              rgOptions={TRIGGER_EFFECT_ORDER.map((m) => ({ data: m, label: t(TRIGGER_MODE_LABEL_KEYS[m] ?? m) }))}
+              selectedOption={mode}
+              onChange={onModeChange}
+            />
+          </PanelSectionRow>
+          {mode !== "off" && (TRIGGER_EFFECT_PARAMS[mode] ?? []).length > 0 && (
+            <>
+              {(TRIGGER_EFFECT_PARAMS[mode] ?? []).map(([key, lo, hi]) => (
+                <PanelSectionRow key={key}>
+                  <SliderField
+                    label={triggerParamLabel(key, t)}
+                    value={values[key] ?? lo}
+                    min={lo}
+                    max={hi}
+                    step={1}
+                    notchTicksVisible={false}
+                    onChange={(v: number) => onParamChange(key, v)}
+                  />
+                </PanelSectionRow>
+              ))}
+              <PanelSectionRow>
+                <ButtonItem layout="below" onClick={onApply}>
+                  {t("btn_apply")}
+                </ButtonItem>
+              </PanelSectionRow>
+            </>
+          )}
+        </>
+      )}
+    </PanelSection>
+  );
+}
+
+// Decky's @decky/ui has no built-in collapsible/accordion (checked its
+// index.d.ts) - this hand-rolls one using ButtonItem (rather than a plain
+// clickable <div>) so it stays reachable via the Deck's D-pad/focus-based
+// navigation, not just a mouse/touch pointer.
+function CollapsibleToggle({ open, onToggle, t }: { open: boolean; onToggle: () => void; t: (key: string) => string }) {
+  return (
+    <PanelSectionRow>
+      <ButtonItem layout="below" onClick={onToggle}>
+        {open ? `▼ ${t("collapse_hide")}` : `▶ ${t("collapse_show")}`}
+      </ButtonItem>
+    </PanelSectionRow>
+  );
+}
+
+function CollapsibleSection({ title, t, children }: { title: string; t: (key: string) => string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <PanelSection title={title}>
+      <CollapsibleToggle open={open} onToggle={() => setOpen((o) => !o)} t={t} />
+      {open && children}
     </PanelSection>
   );
 }
@@ -405,7 +468,10 @@ function DirectAudioSection({ t }: { t: (key: string) => string }) {
   });
 
   useEffect(() => {
-    (async () => setDirectAudioState(await getDirectAudio()))();
+    (async () => {
+      const fetched = await getDirectAudio();
+      setDirectAudioState({ ...fetched, gain: snapToStep(fetched.gain, 1.0, 0.1) });
+    })();
   }, []);
 
   const onUsbToggle = async (value: boolean) => {
@@ -418,41 +484,62 @@ function DirectAudioSection({ t }: { t: (key: string) => string }) {
     await setDirectAudioBtEnabled(value);
   };
 
-  const onChunkMsChange = async (value: number) => {
-    setDirectAudioState((d) => ({ ...d, bt_chunk_ms: value }));
-    await setBtChunkMs(value);
+  const onChunkMsChange = async (option: { data: number }) => {
+    setDirectAudioState((d) => ({ ...d, bt_chunk_ms: option.data }));
+    await setBtChunkMs(option.data);
+  };
+
+  const onGainChange = async (value: number) => {
+    setDirectAudioState((d) => ({ ...d, gain: value }));
+    await setDirectAudioGain(value);
   };
 
   return (
-    <PanelSection title={t("direct_audio_title")}>
+    <CollapsibleSection title={t("direct_audio_title")} t={t}>
       <PanelSectionRow>
         <ToggleField label={`USB — ${t("direct_audio_checkbox")}`} checked={directAudio.enabled} onChange={onUsbToggle} />
       </PanelSectionRow>
       <PanelSectionRow>
         <ToggleField label={t("direct_audio_bt_checkbox")} checked={directAudio.bt_enabled} onChange={onBtToggle} />
       </PanelSectionRow>
-      {directAudio.bt_enabled && (
-        <PanelSectionRow>
-          <SliderField
-            label={t("label_bt_chunk_ms")}
-            value={directAudio.bt_chunk_ms}
-            min={10}
-            max={30}
-            step={1}
-            notchTicksVisible={false}
-            onChange={onChunkMsChange}
-          />
-        </PanelSectionRow>
-      )}
-    </PanelSection>
+      <PanelSectionRow>
+        <SliderField
+          label={t("label_direct_gain")}
+          value={directAudio.gain}
+          min={1.0}
+          max={8.0}
+          step={0.1}
+          notchTicksVisible={false}
+          onChange={onGainChange}
+        />
+      </PanelSectionRow>
+      <PanelSectionRow>
+        <DropdownItem
+          label={t("label_bt_chunk_ms")}
+          rgOptions={BT_CHUNK_MS_CHOICES.map((v) => ({ data: v, label: `${v} ms` }))}
+          selectedOption={directAudio.bt_chunk_ms}
+          onChange={onChunkMsChange}
+        />
+      </PanelSectionRow>
+    </CollapsibleSection>
   );
 }
 
 function LedVisualizerSection({ t }: { t: (key: string) => string }) {
   const [led, setLed] = useState<LedVisualizer>({ enabled: false, attack: 0.5, release: 0.08, gamma: 1.8, bass_priority: 0.6 });
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   useEffect(() => {
-    (async () => setLed(await getLedVisualizer()))();
+    (async () => {
+      const fetched = await getLedVisualizer();
+      setLed({
+        ...fetched,
+        attack: snapToStep(fetched.attack, 0.05, 0.05),
+        release: snapToStep(fetched.release, 0.0, 0.05),
+        gamma: snapToStep(fetched.gamma, 0.5, 0.25),
+        bass_priority: snapToStep(fetched.bass_priority, 0.0, 0.1),
+      });
+    })();
   }, []);
 
   const onToggle = async (value: boolean) => {
@@ -487,6 +574,9 @@ function LedVisualizerSection({ t }: { t: (key: string) => string }) {
       </PanelSectionRow>
       {led.enabled && (
         <>
+          <CollapsibleToggle open={detailsOpen} onToggle={() => setDetailsOpen((o) => !o)} t={t} />
+          {detailsOpen && (
+          <>
           <PanelSectionRow>
             <SliderField
               label={t("label_led_attack")}
@@ -502,9 +592,9 @@ function LedVisualizerSection({ t }: { t: (key: string) => string }) {
             <SliderField
               label={t("label_led_release")}
               value={led.release}
-              min={0.01}
+              min={0.0}
               max={0.5}
-              step={0.01}
+              step={0.05}
               notchTicksVisible={false}
               onChange={onReleaseChange}
             />
@@ -515,7 +605,7 @@ function LedVisualizerSection({ t }: { t: (key: string) => string }) {
               value={led.gamma}
               min={0.5}
               max={3.0}
-              step={0.1}
+              step={0.25}
               notchTicksVisible={false}
               onChange={onGammaChange}
             />
@@ -526,25 +616,226 @@ function LedVisualizerSection({ t }: { t: (key: string) => string }) {
               value={led.bass_priority}
               min={0.0}
               max={1.0}
-              step={0.05}
+              step={0.1}
               notchTicksVisible={false}
               onChange={onBassPriorityChange}
             />
           </PanelSectionRow>
+          </>
+          )}
         </>
       )}
     </PanelSection>
   );
 }
 
+// Desktop's own slider is a continuous 1000-step control (see ui.py's
+// ParamSlider), so values it saved can land anywhere in a range - not
+// necessarily on one of Decky's SliderField fixed `step` positions (e.g.
+// direct_audio.gain saved as 4.85 with this panel's step=0.1, which sits
+// exactly between the 4.8/4.9 notches). Confirmed on real hardware that
+// handing SliderField such an off-grid value makes its drag handle fail to
+// render at all - snap to the nearest valid notch before ever setting state.
+// Mirrors haptics_engine.py's BT_CHUNK_MS_CHOICES (10, BT_CHUNK_MS=20, 30) -
+// a dropdown rather than a slider, both because a 3-way choice doesn't need
+// fine-grained control and because SliderField couldn't render a handle for
+// this particular value at all (see the git history on this file).
+const BT_CHUNK_MS_CHOICES = [10, 20, 30];
+
+function decimalsFor(step: number): number {
+  const s = step.toString();
+  const i = s.indexOf(".");
+  return i === -1 ? 0 : s.length - i - 1;
+}
+
+function snapToStep(value: number, min: number, step: number): number {
+  const snapped = min + Math.round((value - min) / step) * step;
+  // The arithmetic above can leave binary-floating-point noise on values
+  // that aren't exactly representable (0.08, 1.8, 0.6, ... - unlike 0.5,
+  // which is) - e.g. 0.08000000000000002 instead of 0.08. Confirmed on real
+  // hardware that SliderField's drag handle fails to render at all for such
+  // a value, even though it's numerically "close enough" - clean it up to
+  // the step's own decimal precision.
+  return parseFloat(snapped.toFixed(decimalsFor(step)));
+}
+
+const BAND_LABEL_KEYS: Record<keyof BandSettings, string> = {
+  lo: "slider_lo", hi: "slider_hi", attack: "slider_attack", release: "slider_release",
+  gamma: "slider_gamma", attack_s: "slider_ceil_attack", release_s: "slider_ceil_release",
+};
+// [min, max, step] - matches ui.py's ParamSlider construction for band_group() exactly.
+const BAND_RANGES: Record<keyof BandSettings, [number, number, number]> = {
+  lo: [0.0, 0.05, 0.001],
+  hi: [0.01, 0.3, 0.005],
+  attack: [0.5, 0.99, 0.01],
+  release: [0.1, 0.9, 0.01],
+  gamma: [0.4, 2.5, 0.05],
+  attack_s: [0.02, 0.5, 0.01],
+  release_s: [0.3, 5.0, 0.1],
+};
+const BAND_KEYS: (keyof BandSettings)[] = ["lo", "hi", "attack", "release", "gamma", "attack_s", "release_s"];
+
+function BandSection({ band, title, t }: { band: string; title: string; t: (key: string) => string }) {
+  const [settings, setSettings] = useState<BandSettings>({
+    lo: 0.01, hi: 0.1, attack: 0.95, release: 0.5, gamma: 1.0, attack_s: 0.08, release_s: 2.5,
+  });
+
+  useEffect(() => {
+    (async () => {
+      const fetched = await getBandSettings(band);
+      const snapped = { ...fetched };
+      for (const key of BAND_KEYS) {
+        const [min, , step] = BAND_RANGES[key];
+        snapped[key] = snapToStep(fetched[key], min, step);
+      }
+      setSettings(snapped);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [band]);
+
+  const onChange = (key: keyof BandSettings) => async (value: number) => {
+    setSettings((s) => ({ ...s, [key]: value }));
+    await setBandParam(band, key, value);
+  };
+
+  return (
+    <CollapsibleSection title={title} t={t}>
+      {BAND_KEYS.map((key) => {
+        const [min, max, step] = BAND_RANGES[key];
+        return (
+          <PanelSectionRow key={key}>
+            <SliderField
+              label={t(BAND_LABEL_KEYS[key])}
+              value={settings[key]}
+              min={min}
+              max={max}
+              step={step}
+              notchTicksVisible={false}
+              onChange={onChange(key)}
+            />
+          </PanelSectionRow>
+        );
+      })}
+    </CollapsibleSection>
+  );
+}
+
+// Real evdev button codes (confirmed via `python3 -c "from evdev import ecodes"`,
+// matching ui.py's LEFT_BUTTON_OPTIONS/RIGHT_BUTTON_OPTIONS and
+// haptics_engine.py's DPAD_VIRTUAL_CODE) - button_haptics config keys are
+// str(code) on the Python side.
+const LEFT_BUTTON_OPTIONS: [string, number][] = [
+  ["btn_dpad", -1],
+  ["btn_l1", 310],
+  ["btn_l2_press", 312],
+  ["btn_l3", 317],
+  ["btn_share", 314],
+];
+const RIGHT_BUTTON_OPTIONS: [string, number][] = [
+  ["btn_cross", 304],
+  ["btn_circle", 305],
+  ["btn_triangle", 307],
+  ["btn_square", 308],
+  ["btn_r1", 311],
+  ["btn_r2_press", 313],
+  ["btn_r3", 318],
+  ["btn_options", 315],
+  ["btn_ps", 316],
+];
+
+function ButtonHapticRow({ labelKey, code, t, entry, onChange }: {
+  labelKey: string; code: number; t: (key: string) => string;
+  entry: ButtonHapticEntry; onChange: (code: number, entry: ButtonHapticEntry) => void;
+}) {
+  const onToggle = (value: boolean) => onChange(code, { ...entry, enabled: value });
+  const onStrength = (value: number) => onChange(code, { ...entry, strength: value });
+  return (
+    <>
+      <PanelSectionRow>
+        <ToggleField label={t(labelKey)} checked={entry.enabled} onChange={onToggle} />
+      </PanelSectionRow>
+      {entry.enabled && (
+        <PanelSectionRow>
+          <SliderField
+            label={t("trig_param_strength")}
+            value={entry.strength}
+            min={0.0}
+            max={1.0}
+            step={0.05}
+            notchTicksVisible={false}
+            onChange={onStrength}
+          />
+        </PanelSectionRow>
+      )}
+    </>
+  );
+}
+
+function ButtonHapticsSection({ t }: { t: (key: string) => string }) {
+  const [entries, setEntries] = useState<Record<string, ButtonHapticEntry>>({});
+
+  useEffect(() => {
+    (async () => {
+      const fetched = await getButtonHaptics();
+      const snapped: Record<string, ButtonHapticEntry> = {};
+      for (const [code, entry] of Object.entries(fetched)) {
+        snapped[code] = { ...entry, strength: snapToStep(entry.strength, 0.0, 0.05) };
+      }
+      setEntries(snapped);
+    })();
+  }, []);
+
+  const entryFor = (code: number): ButtonHapticEntry =>
+    entries[String(code)] ?? { enabled: false, strength: 0.4 };
+
+  const onRowChange = async (code: number, entry: ButtonHapticEntry) => {
+    setEntries((e) => ({ ...e, [String(code)]: entry }));
+    await setButtonHaptic(String(code), entry.enabled, entry.strength);
+  };
+
+  const renderGroup = (options: [string, number][]) =>
+    options.map(([labelKey, code]) => (
+      <ButtonHapticRow key={code} labelKey={labelKey} code={code} t={t} entry={entryFor(code)} onChange={onRowChange} />
+    ));
+
+  return (
+    <CollapsibleSection title={t("button_haptic_title")} t={t}>
+      <PanelSectionRow>
+        <span style={{ fontSize: "0.85em", opacity: 0.75 }}>{t("group_left_side")}</span>
+      </PanelSectionRow>
+      {renderGroup(LEFT_BUTTON_OPTIONS)}
+      <PanelSectionRow>
+        <span style={{ fontSize: "0.85em", opacity: 0.75 }}>{t("group_right_side")}</span>
+      </PanelSectionRow>
+      {renderGroup(RIGHT_BUTTON_OPTIONS)}
+    </CollapsibleSection>
+  );
+}
+
+// Shared between the enable toggle below and the app-launch handler in
+// definePlugin(): if this app already has a linked profile, switch to it;
+// otherwise create one from whatever's currently active. Module-level (not
+// inside a component) since the launch handler runs outside React entirely.
+async function linkOrApplyGame(appid: string, name: string) {
+  const entry = gameProfilesCache[appid];
+  if (entry) {
+    await applyRef(entry.ref);
+  } else {
+    const ref = await getActiveRef();
+    await setGameProfile(appid, name, ref);
+    gameProfilesCache = { ...gameProfilesCache, [appid]: { name, ref } };
+  }
+}
+
 function GameProfilesSection({ t }: { t: (key: string) => string }) {
-  const [mappings, setMappings] = useState<GameProfiles>({});
   const [runningApp, setRunningApp] = useState<{ appid: string; name: string } | null>(null);
+  const [enabled, setEnabled] = useState(true);
 
   useEffect(() => {
     (async () => {
       gameProfilesCache = await getGameProfiles();
-      setMappings(gameProfilesCache);
+      gameProfilesEnabledCache = await getGameProfilesEnabled();
+      setEnabled(gameProfilesEnabledCache);
     })();
 
     const interval = setInterval(() => {
@@ -554,49 +845,31 @@ function GameProfilesSection({ t }: { t: (key: string) => string }) {
     return () => clearInterval(interval);
   }, []);
 
-  const onLink = async () => {
-    if (!runningApp) return;
-    const ref = await getActiveRef();
-    await setGameProfile(runningApp.appid, runningApp.name, ref);
-    gameProfilesCache = { ...gameProfilesCache, [runningApp.appid]: { name: runningApp.name, ref } };
-    setMappings(gameProfilesCache);
+  // Turning this on counts as a launch event for whatever game is running
+  // right now: switches to its profile if it already has one, otherwise
+  // links it to whatever's currently active (see linkOrApplyGame). From then
+  // on, every actual game launch while this stays on does the same thing
+  // automatically - see the RegisterForAppLifetimeNotifications handler in
+  // definePlugin() below. Turning it off just stops intervening on launches;
+  // whatever preset/profile is manually selected stays in effect.
+  const onEnabledToggle = async (value: boolean) => {
+    gameProfilesEnabledCache = value;
+    setEnabled(value);
+    await setGameProfilesEnabled(value);
+    if (value && runningApp) {
+      await linkOrApplyGame(runningApp.appid, runningApp.name);
+    }
   };
-
-  const onUnlink = async (appId: string) => {
-    await clearGameProfile(appId);
-    const next = { ...gameProfilesCache };
-    delete next[appId];
-    gameProfilesCache = next;
-    setMappings(next);
-  };
-
-  const entries = Object.entries(mappings);
 
   return (
     <PanelSection title={t("game_profiles_title")}>
-      {runningApp && (
-        <PanelSectionRow>
-          <ButtonItem layout="below" onClick={onLink}>
-            {t("game_profiles_link_button")} · {runningApp.name}
-          </ButtonItem>
-        </PanelSectionRow>
-      )}
-      {entries.length === 0 ? (
-        <PanelSectionRow>
-          <span style={{ fontSize: "0.85em", opacity: 0.75 }}>{t("game_profiles_empty")}</span>
-        </PanelSectionRow>
-      ) : (
-        entries.map(([appId, entry]) => (
-          <PanelSectionRow key={appId}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span>{entry.name}</span>
-              <ButtonItem layout="below" onClick={() => onUnlink(appId)}>
-                {t("game_profiles_unlink")}
-              </ButtonItem>
-            </div>
-          </PanelSectionRow>
-        ))
-      )}
+      <PanelSectionRow>
+        <ToggleField
+          label={t("game_profiles_enabled_checkbox")}
+          checked={enabled}
+          onChange={onEnabledToggle}
+        />
+      </PanelSectionRow>
     </PanelSection>
   );
 }
@@ -639,6 +912,9 @@ function Root() {
       <CustomTriggerCard side="right" label={t("trigger_right_title")} t={t} />
       <DirectAudioSection t={t} />
       <LedVisualizerSection t={t} />
+      <BandSection band="bass" title={t("group_bass")} t={t} />
+      <BandSection band="treble" title={t("group_treble")} t={t} />
+      <ButtonHapticsSection t={t} />
       <SettingsSection lang={lang} onLangChange={onLangChange} t={t} />
     </>
   );
@@ -647,16 +923,20 @@ function Root() {
 export default definePlugin(() => {
   (async () => {
     gameProfilesCache = await getGameProfiles();
+    gameProfilesEnabledCache = await getGameProfilesEnabled();
   })();
 
   // Registered once, outside any component's lifecycle, since a Steam game
   // can launch while the QAM panel (and GameProfilesSection) isn't even
   // mounted - reads gameProfilesCache (kept current by GameProfilesSection)
-  // rather than a value captured at registration time.
+  // rather than a value captured at registration time. Same for
+  // gameProfilesEnabledCache - the global on/off toggle for this whole
+  // mechanism.
   const lifetimeReg = SteamClient.GameSessions.RegisterForAppLifetimeNotifications((notification) => {
-    if (!notification.bRunning) return;
-    const entry = gameProfilesCache[String(notification.unAppID)];
-    if (entry) applyRef(entry.ref);
+    if (!notification.bRunning || !gameProfilesEnabledCache) return;
+    const appid = String(notification.unAppID);
+    const name = Router.MainRunningApp?.display_name ?? appid;
+    linkOrApplyGame(appid, name);
   });
 
   return {

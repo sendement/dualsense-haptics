@@ -60,6 +60,11 @@ BT_BUTTON_CLICK_HZ = 150
 # letting either tradeoff run unchecked.
 BT_CHUNK_MS_MIN = 10
 BT_CHUNK_MS_MAX = 30
+# Exposed as a 3-way choice rather than a free slider - the fine-grained
+# range was more knobs than this setting actually needed, and the Decky
+# plugin's slider control couldn't render its drag handle for this one at
+# all (see deck-plugin/src/index.tsx's own history on that).
+BT_CHUNK_MS_CHOICES = (BT_CHUNK_MS_MIN, BT_CHUNK_MS, BT_CHUNK_MS_MAX)
 
 DEFAULT_CONFIG = {
     "master_gain": 1.0,

@@ -107,9 +107,6 @@ const STRINGS = {
         "label_led_gamma": "Peak Contrast",
         "label_led_bass_priority": "Bass Priority",
         "game_profiles_title": "Game Profiles",
-        "game_profiles_link_button": "Link current settings to",
-        "game_profiles_empty": "No games linked yet - launch a game and tap the button above.",
-        "game_profiles_unlink": "Unlink",
         "label_direct_gain": "Strength",
         "group_language": "Language",
         "trigger_custom_title": "Custom Effect",
@@ -152,7 +149,45 @@ const STRINGS = {
         "preset_label": "Preset",
         "profile_label": "Profile",
         "direct_audio_title": "Direct Audio",
-        "mode_label": "Mode"
+        "mode_label": "Mode",
+        "label_master_gain": "Overall Vibration Volume",
+        "slider_lo": "Trigger Threshold (lo)",
+        "slider_lo_hint": "Below this level the motor stays silent.",
+        "slider_hi": "Full Strength Threshold (hi)",
+        "slider_hi_hint": "At this level and above — full strength. Lower = more sensitive.",
+        "slider_attack": "Attack",
+        "slider_attack_hint": "How fast the motor reaches its target strength.",
+        "slider_release": "Release",
+        "slider_release_hint": "How fast the motor fades out. Higher = sharper/shorter response.",
+        "slider_gamma": "Contrast (gamma)",
+        "slider_gamma_hint": "Above 1 — reacts only to loud sound. Below 1 — more sensitive to quiet sound.",
+        "slider_ceil_attack": "Background Suppression: Speed",
+        "slider_ceil_attack_hint": "How fast a constant background is suppressed. Lower = more aggressive.",
+        "slider_ceil_release": "Background Suppression: Memory",
+        "slider_ceil_release_hint": "How long the background level is remembered between spikes.",
+        "group_bass": "Bass (strong motor)",
+        "group_treble": "Treble (weak motor)",
+        "btn_dpad": "D-Pad",
+        "btn_l1": "L1",
+        "btn_l2_press": "L2 (press)",
+        "btn_l3": "L3 (stick)",
+        "btn_share": "Share / Create",
+        "btn_cross": "Cross (✕)",
+        "btn_circle": "Circle (○)",
+        "btn_triangle": "Triangle (△)",
+        "btn_square": "Square (□)",
+        "btn_r1": "R1",
+        "btn_r2_press": "R2 (press)",
+        "btn_r3": "R3 (stick)",
+        "btn_options": "Options",
+        "btn_ps": "PS",
+        "group_left_side": "Left Side",
+        "group_right_side": "Right Side",
+        "button_haptic_title": "Button Vibration",
+        "button_haptic_hint": "While a button is held, its motor buzzes continuously — independent of sound, and mixed with the normal audio vibration. Left-side buttons lightly buzz the strong/left motor, right-side buttons the weak/right motor, each at its own strength.",
+        "collapse_show": "Show settings",
+        "collapse_hide": "Hide settings",
+        "game_profiles_enabled_checkbox": "Use game profile",
     },
     "ru": {
         "home_vibration": "Вибрация",
@@ -174,9 +209,6 @@ const STRINGS = {
         "label_led_gamma": "Контраст пиков",
         "label_led_bass_priority": "Приоритет баса",
         "game_profiles_title": "Профили под игры",
-        "game_profiles_link_button": "Привязать текущие настройки к",
-        "game_profiles_empty": "Пока ничего не привязано — запусти игру и нажми кнопку выше.",
-        "game_profiles_unlink": "Отвязать",
         "label_direct_gain": "Сила",
         "group_language": "Язык",
         "trigger_custom_title": "Свой эффект",
@@ -219,7 +251,45 @@ const STRINGS = {
         "preset_label": "Пресет",
         "profile_label": "Профиль",
         "direct_audio_title": "Прямой звук",
-        "mode_label": "Режим"
+        "mode_label": "Режим",
+        "label_master_gain": "Общая громкость вибрации",
+        "slider_lo": "Порог срабатывания (lo)",
+        "slider_lo_hint": "Ниже этого уровня мотор молчит.",
+        "slider_hi": "Порог полной силы (hi)",
+        "slider_hi_hint": "На этом уровне и выше — полная сила. Меньше = чувствительнее.",
+        "slider_attack": "Атака",
+        "slider_attack_hint": "Как быстро мотор выходит на нужную силу.",
+        "slider_release": "Спад",
+        "slider_release_hint": "Как быстро мотор затихает. Больше = резче/короче отклик.",
+        "slider_gamma": "Контраст (гамма)",
+        "slider_gamma_hint": "Больше 1 — реагирует только на громкое. Меньше 1 — чувствительнее к тихому.",
+        "slider_ceil_attack": "Подавление фона: скорость",
+        "slider_ceil_attack_hint": "Как быстро гасится постоянный фон. Меньше = агрессивнее.",
+        "slider_ceil_release": "Подавление фона: память",
+        "slider_ceil_release_hint": "Как долго помнится уровень фона между всплесками.",
+        "group_bass": "Бас (сильный мотор)",
+        "group_treble": "Верхи (лёгкий мотор)",
+        "btn_dpad": "Крестовина",
+        "btn_l1": "L1",
+        "btn_l2_press": "L2 (нажатие)",
+        "btn_l3": "L3 (стик)",
+        "btn_share": "Share / Create",
+        "btn_cross": "Крест (✕)",
+        "btn_circle": "Кружок (○)",
+        "btn_triangle": "Треугольник (△)",
+        "btn_square": "Квадрат (□)",
+        "btn_r1": "R1",
+        "btn_r2_press": "R2 (нажатие)",
+        "btn_r3": "R3 (стик)",
+        "btn_options": "Options",
+        "btn_ps": "PS",
+        "group_left_side": "Левая сторона",
+        "group_right_side": "Правая сторона",
+        "button_haptic_title": "Вибрация кнопки",
+        "button_haptic_hint": "Пока кнопка зажата, соответствующий мотор гудит постоянно — независимо от звука, и суммируется с обычной аудио-вибрацией. Кнопки левой стороны чуть подрагивают на сильном/левом моторе, правой — на лёгком/правом, каждая своей силой.",
+        "collapse_show": "Показать настройки",
+        "collapse_hide": "Скрыть настройки",
+        "game_profiles_enabled_checkbox": "Использовать игровой профиль",
     },
     "zh": {
         "home_vibration": "振动",
@@ -241,9 +311,6 @@ const STRINGS = {
         "label_led_gamma": "峰值对比度",
         "label_led_bass_priority": "低音优先级",
         "game_profiles_title": "游戏配置",
-        "game_profiles_link_button": "将当前设置关联到",
-        "game_profiles_empty": "还没有关联任何游戏——启动一个游戏，然后点击上面的按钮。",
-        "game_profiles_unlink": "取消关联",
         "label_direct_gain": "强度",
         "group_language": "语言",
         "trigger_custom_title": "自定义效果",
@@ -286,7 +353,45 @@ const STRINGS = {
         "preset_label": "预设",
         "profile_label": "配置文件",
         "direct_audio_title": "直接音频",
-        "mode_label": "模式"
+        "mode_label": "模式",
+        "label_master_gain": "总振动音量",
+        "slider_lo": "触发阈值 (lo)",
+        "slider_lo_hint": "低于此电平时马达保持静止。",
+        "slider_hi": "满强度阈值 (hi)",
+        "slider_hi_hint": "达到或超过此电平即为最大强度。数值越低越灵敏。",
+        "slider_attack": "起振速度",
+        "slider_attack_hint": "马达达到目标强度的速度。",
+        "slider_release": "释放速度",
+        "slider_release_hint": "马达衰减的速度。数值越大，响应越急促短暂。",
+        "slider_gamma": "对比度 (gamma)",
+        "slider_gamma_hint": "大于 1——只对响亮的声音有反应。小于 1——对轻声更敏感。",
+        "slider_ceil_attack": "背景抑制：速度",
+        "slider_ceil_attack_hint": "抑制持续背景噪音的速度。数值越低越激进。",
+        "slider_ceil_release": "背景抑制：记忆时长",
+        "slider_ceil_release_hint": "两次峰值之间记住背景电平的时长。",
+        "group_bass": "低音（强马达）",
+        "group_treble": "高音（弱马达）",
+        "btn_dpad": "方向键",
+        "btn_l1": "L1",
+        "btn_l2_press": "L2（按下）",
+        "btn_l3": "L3（摇杆按下）",
+        "btn_share": "分享/创建",
+        "btn_cross": "✕（叉）",
+        "btn_circle": "○（圈）",
+        "btn_triangle": "△（三角）",
+        "btn_square": "□（方块）",
+        "btn_r1": "R1",
+        "btn_r2_press": "R2（按下）",
+        "btn_r3": "R3（摇杆按下）",
+        "btn_options": "选项",
+        "btn_ps": "PS",
+        "group_left_side": "左侧",
+        "group_right_side": "右侧",
+        "button_haptic_title": "按键振动",
+        "button_haptic_hint": "按住按键时，对应马达会持续振动——与声音无关，并与正常的音频振动叠加。左侧按键轻微振动强马达（左），右侧按键振动弱马达（右），各自使用自己的强度。",
+        "collapse_show": "显示设置",
+        "collapse_hide": "隐藏设置",
+        "game_profiles_enabled_checkbox": "使用游戏专属配置",
     },
     "es": {
         "home_vibration": "Vibración",
@@ -308,9 +413,6 @@ const STRINGS = {
         "label_led_gamma": "Contraste de picos",
         "label_led_bass_priority": "Prioridad de graves",
         "game_profiles_title": "Perfiles de juego",
-        "game_profiles_link_button": "Vincular ajustes actuales a",
-        "game_profiles_empty": "Aún no hay juegos vinculados: inicia un juego y toca el botón de arriba.",
-        "game_profiles_unlink": "Desvincular",
         "label_direct_gain": "Intensidad",
         "group_language": "Idioma",
         "trigger_custom_title": "Efecto personalizado",
@@ -353,7 +455,45 @@ const STRINGS = {
         "preset_label": "Preajuste",
         "profile_label": "Perfil",
         "direct_audio_title": "Audio directo",
-        "mode_label": "Modo"
+        "mode_label": "Modo",
+        "label_master_gain": "Volumen general de vibración",
+        "slider_lo": "Umbral de activación (lo)",
+        "slider_lo_hint": "Por debajo de este nivel el motor permanece en silencio.",
+        "slider_hi": "Umbral de fuerza máxima (hi)",
+        "slider_hi_hint": "En este nivel o superior, fuerza máxima. Menor = más sensible.",
+        "slider_attack": "Ataque",
+        "slider_attack_hint": "Qué tan rápido el motor alcanza su fuerza objetivo.",
+        "slider_release": "Caída",
+        "slider_release_hint": "Qué tan rápido se apaga el motor. Mayor = respuesta más brusca/corta.",
+        "slider_gamma": "Contraste (gamma)",
+        "slider_gamma_hint": "Mayor que 1: solo reacciona a sonidos fuertes. Menor que 1: más sensible a sonidos suaves.",
+        "slider_ceil_attack": "Supresión de fondo: velocidad",
+        "slider_ceil_attack_hint": "Qué tan rápido se suprime un fondo constante. Menor = más agresivo.",
+        "slider_ceil_release": "Supresión de fondo: memoria",
+        "slider_ceil_release_hint": "Cuánto tiempo se recuerda el nivel de fondo entre picos.",
+        "group_bass": "Graves (motor fuerte)",
+        "group_treble": "Agudos (motor débil)",
+        "btn_dpad": "Cruceta",
+        "btn_l1": "L1",
+        "btn_l2_press": "L2 (pulsación)",
+        "btn_l3": "L3 (stick)",
+        "btn_share": "Compartir / Crear",
+        "btn_cross": "Cruz (✕)",
+        "btn_circle": "Círculo (○)",
+        "btn_triangle": "Triángulo (△)",
+        "btn_square": "Cuadrado (□)",
+        "btn_r1": "R1",
+        "btn_r2_press": "R2 (pulsación)",
+        "btn_r3": "R3 (stick)",
+        "btn_options": "Options",
+        "btn_ps": "PS",
+        "group_left_side": "Lado izquierdo",
+        "group_right_side": "Lado derecho",
+        "button_haptic_title": "Vibración de botones",
+        "button_haptic_hint": "Mientras se mantiene pulsado un botón, su motor vibra continuamente, independientemente del sonido, y se mezcla con la vibración de audio normal. Los botones del lado izquierdo vibran ligeramente el motor fuerte/izquierdo, los del lado derecho el motor débil/derecho, cada uno con su propia intensidad.",
+        "collapse_show": "Mostrar ajustes",
+        "collapse_hide": "Ocultar ajustes",
+        "game_profiles_enabled_checkbox": "Usar perfil por juego",
     },
     "de": {
         "home_vibration": "Vibration",
@@ -375,9 +515,6 @@ const STRINGS = {
         "label_led_gamma": "Spitzen-Kontrast",
         "label_led_bass_priority": "Bass-Priorität",
         "game_profiles_title": "Spielprofile",
-        "game_profiles_link_button": "Aktuelle Einstellungen verknüpfen mit",
-        "game_profiles_empty": "Noch keine Spiele verknüpft – starte ein Spiel und tippe oben auf die Schaltfläche.",
-        "game_profiles_unlink": "Verknüpfung aufheben",
         "label_direct_gain": "Stärke",
         "group_language": "Sprache",
         "trigger_custom_title": "Eigener Effekt",
@@ -420,7 +557,45 @@ const STRINGS = {
         "preset_label": "Preset",
         "profile_label": "Profil",
         "direct_audio_title": "Direktes Audio",
-        "mode_label": "Modus"
+        "mode_label": "Modus",
+        "label_master_gain": "Gesamtlautstärke der Vibration",
+        "slider_lo": "Ansprechschwelle (lo)",
+        "slider_lo_hint": "Unterhalb dieses Pegels bleibt der Motor still.",
+        "slider_hi": "Schwelle für volle Stärke (hi)",
+        "slider_hi_hint": "Ab diesem Pegel volle Stärke. Niedriger = empfindlicher.",
+        "slider_attack": "Attack",
+        "slider_attack_hint": "Wie schnell der Motor seine Zielstärke erreicht.",
+        "slider_release": "Release",
+        "slider_release_hint": "Wie schnell der Motor ausklingt. Höher = schärfere/kürzere Reaktion.",
+        "slider_gamma": "Kontrast (Gamma)",
+        "slider_gamma_hint": "Über 1 — reagiert nur auf laute Geräusche. Unter 1 — empfindlicher bei leisen Geräuschen.",
+        "slider_ceil_attack": "Hintergrundunterdrückung: Geschwindigkeit",
+        "slider_ceil_attack_hint": "Wie schnell ein konstanter Hintergrund unterdrückt wird. Niedriger = aggressiver.",
+        "slider_ceil_release": "Hintergrundunterdrückung: Gedächtnis",
+        "slider_ceil_release_hint": "Wie lange der Hintergrundpegel zwischen Spitzen gespeichert bleibt.",
+        "group_bass": "Bass (starker Motor)",
+        "group_treble": "Höhen (schwacher Motor)",
+        "btn_dpad": "Steuerkreuz",
+        "btn_l1": "L1",
+        "btn_l2_press": "L2 (drücken)",
+        "btn_l3": "L3 (Stick)",
+        "btn_share": "Share / Create",
+        "btn_cross": "Kreuz (✕)",
+        "btn_circle": "Kreis (○)",
+        "btn_triangle": "Dreieck (△)",
+        "btn_square": "Quadrat (□)",
+        "btn_r1": "R1",
+        "btn_r2_press": "R2 (drücken)",
+        "btn_r3": "R3 (Stick)",
+        "btn_options": "Options",
+        "btn_ps": "PS",
+        "group_left_side": "Linke Seite",
+        "group_right_side": "Rechte Seite",
+        "button_haptic_title": "Tasten-Vibration",
+        "button_haptic_hint": "Solange eine Taste gedrückt gehalten wird, summt der zugehörige Motor durchgehend — unabhängig vom Ton, und gemischt mit der normalen Audio-Vibration. Tasten auf der linken Seite lassen leicht den starken/linken Motor summen, auf der rechten Seite den schwachen/rechten, jeweils mit eigener Stärke.",
+        "collapse_show": "Einstellungen anzeigen",
+        "collapse_hide": "Einstellungen ausblenden",
+        "game_profiles_enabled_checkbox": "Spielprofil verwenden",
     },
     "fr": {
         "home_vibration": "Vibration",
@@ -442,9 +617,6 @@ const STRINGS = {
         "label_led_gamma": "Contraste des pics",
         "label_led_bass_priority": "Priorité des graves",
         "game_profiles_title": "Profils de jeu",
-        "game_profiles_link_button": "Associer les réglages actuels à",
-        "game_profiles_empty": "Aucun jeu associé pour l'instant - lance un jeu et appuie sur le bouton ci-dessus.",
-        "game_profiles_unlink": "Dissocier",
         "label_direct_gain": "Intensité",
         "group_language": "Langue",
         "trigger_custom_title": "Effet personnalisé",
@@ -487,7 +659,45 @@ const STRINGS = {
         "preset_label": "Préréglage",
         "profile_label": "Profil",
         "direct_audio_title": "Audio direct",
-        "mode_label": "Mode"
+        "mode_label": "Mode",
+        "label_master_gain": "Volume global de vibration",
+        "slider_lo": "Seuil de déclenchement (lo)",
+        "slider_lo_hint": "En dessous de ce niveau, le moteur reste silencieux.",
+        "slider_hi": "Seuil de pleine puissance (hi)",
+        "slider_hi_hint": "À ce niveau et au-delà — pleine puissance. Plus bas = plus sensible.",
+        "slider_attack": "Attaque",
+        "slider_attack_hint": "Vitesse à laquelle le moteur atteint sa puissance cible.",
+        "slider_release": "Chute",
+        "slider_release_hint": "Vitesse à laquelle le moteur s'estompe. Plus élevé = réponse plus brève/nette.",
+        "slider_gamma": "Contraste (gamma)",
+        "slider_gamma_hint": "Supérieur à 1 — ne réagit qu'aux sons forts. Inférieur à 1 — plus sensible aux sons faibles.",
+        "slider_ceil_attack": "Suppression du fond : vitesse",
+        "slider_ceil_attack_hint": "Vitesse à laquelle un fond constant est supprimé. Plus bas = plus agressif.",
+        "slider_ceil_release": "Suppression du fond : mémoire",
+        "slider_ceil_release_hint": "Durée pendant laquelle le niveau de fond est mémorisé entre deux pics.",
+        "group_bass": "Graves (moteur fort)",
+        "group_treble": "Aigus (moteur faible)",
+        "btn_dpad": "Croix directionnelle",
+        "btn_l1": "L1",
+        "btn_l2_press": "L2 (appui)",
+        "btn_l3": "L3 (stick)",
+        "btn_share": "Share / Create",
+        "btn_cross": "Croix (✕)",
+        "btn_circle": "Rond (○)",
+        "btn_triangle": "Triangle (△)",
+        "btn_square": "Carré (□)",
+        "btn_r1": "R1",
+        "btn_r2_press": "R2 (appui)",
+        "btn_r3": "R3 (stick)",
+        "btn_options": "Options",
+        "btn_ps": "PS",
+        "group_left_side": "Côté gauche",
+        "group_right_side": "Côté droit",
+        "button_haptic_title": "Vibration des boutons",
+        "button_haptic_hint": "Tant qu'un bouton est maintenu, son moteur vibre en continu — indépendamment du son, et se mélange à la vibration audio normale. Les boutons de gauche font légèrement vibrer le moteur fort/gauche, ceux de droite le moteur faible/droit, chacun avec sa propre intensité.",
+        "collapse_show": "Afficher les réglages",
+        "collapse_hide": "Masquer les réglages",
+        "game_profiles_enabled_checkbox": "Utiliser un profil de jeu",
     },
     "ja": {
         "home_vibration": "振動",
@@ -509,9 +719,6 @@ const STRINGS = {
         "label_led_gamma": "ピークのコントラスト",
         "label_led_bass_priority": "低音優先度",
         "game_profiles_title": "ゲームプロファイル",
-        "game_profiles_link_button": "現在の設定をリンク:",
-        "game_profiles_empty": "まだゲームがリンクされていません。ゲームを起動して上のボタンを押してください。",
-        "game_profiles_unlink": "リンク解除",
         "label_direct_gain": "強さ",
         "group_language": "言語",
         "trigger_custom_title": "カスタム効果",
@@ -554,7 +761,45 @@ const STRINGS = {
         "preset_label": "プリセット",
         "profile_label": "プロファイル",
         "direct_audio_title": "ダイレクトオーディオ",
-        "mode_label": "モード"
+        "mode_label": "モード",
+        "label_master_gain": "振動の全体音量",
+        "slider_lo": "作動しきい値 (lo)",
+        "slider_lo_hint": "このレベル未満ではモーターは動作しません。",
+        "slider_hi": "最大強度しきい値 (hi)",
+        "slider_hi_hint": "このレベル以上で最大強度になります。値が小さいほど高感度です。",
+        "slider_attack": "アタック",
+        "slider_attack_hint": "モーターが目標の強さに達する速さです。",
+        "slider_release": "リリース",
+        "slider_release_hint": "モーターが減衰する速さです。値が大きいほど反応が鋭く短くなります。",
+        "slider_gamma": "コントラスト（ガンマ）",
+        "slider_gamma_hint": "1より大きい — 大きな音にのみ反応します。1より小さい — 小さな音により敏感になります。",
+        "slider_ceil_attack": "背景抑制：速度",
+        "slider_ceil_attack_hint": "一定の背景音を抑制する速さです。値が小さいほど積極的になります。",
+        "slider_ceil_release": "背景抑制：記憶時間",
+        "slider_ceil_release_hint": "ピーク間で背景レベルを記憶しておく時間です。",
+        "group_bass": "低音（強モーター）",
+        "group_treble": "高音（弱モーター）",
+        "btn_dpad": "十字キー",
+        "btn_l1": "L1",
+        "btn_l2_press": "L2（押し込み）",
+        "btn_l3": "L3（スティック押し込み）",
+        "btn_share": "シェア / クリエイト",
+        "btn_cross": "✕（クロス）",
+        "btn_circle": "○（サークル）",
+        "btn_triangle": "△（トライアングル）",
+        "btn_square": "□（スクエア）",
+        "btn_r1": "R1",
+        "btn_r2_press": "R2（押し込み）",
+        "btn_r3": "R3（スティック押し込み）",
+        "btn_options": "オプション",
+        "btn_ps": "PS",
+        "group_left_side": "左側",
+        "group_right_side": "右側",
+        "button_haptic_title": "ボタン振動",
+        "button_haptic_hint": "ボタンを押している間、対応するモーターが音とは無関係に振動し続け、通常の音声振動と合成されます。左側のボタンは強い/左モーターを軽く振動させ、右側のボタンは弱い/右モーターを、それぞれ独自の強さで振動させます。",
+        "collapse_show": "設定を表示",
+        "collapse_hide": "設定を隠す",
+        "game_profiles_enabled_checkbox": "ゲームプロファイルを使う",
     },
     "pt": {
         "home_vibration": "Vibração",
@@ -576,9 +821,6 @@ const STRINGS = {
         "label_led_gamma": "Contraste de picos",
         "label_led_bass_priority": "Prioridade dos graves",
         "game_profiles_title": "Perfis de jogo",
-        "game_profiles_link_button": "Vincular configurações atuais a",
-        "game_profiles_empty": "Nenhum jogo vinculado ainda - inicie um jogo e toque no botão acima.",
-        "game_profiles_unlink": "Desvincular",
         "label_direct_gain": "Intensidade",
         "group_language": "Idioma",
         "trigger_custom_title": "Efeito personalizado",
@@ -621,7 +863,45 @@ const STRINGS = {
         "preset_label": "Predefinição",
         "profile_label": "Perfil",
         "direct_audio_title": "Áudio direto",
-        "mode_label": "Modo"
+        "mode_label": "Modo",
+        "label_master_gain": "Volume geral da vibração",
+        "slider_lo": "Limiar de acionamento (lo)",
+        "slider_lo_hint": "Abaixo deste nível o motor permanece em silêncio.",
+        "slider_hi": "Limiar de força máxima (hi)",
+        "slider_hi_hint": "Neste nível ou acima — força máxima. Menor = mais sensível.",
+        "slider_attack": "Ataque",
+        "slider_attack_hint": "Com que rapidez o motor atinge sua força alvo.",
+        "slider_release": "Decaimento",
+        "slider_release_hint": "Com que rapidez o motor se apaga. Maior = resposta mais curta e brusca.",
+        "slider_gamma": "Contraste (gama)",
+        "slider_gamma_hint": "Acima de 1 — reage só a sons altos. Abaixo de 1 — mais sensível a sons baixos.",
+        "slider_ceil_attack": "Supressão de fundo: velocidade",
+        "slider_ceil_attack_hint": "Com que rapidez um fundo constante é suprimido. Menor = mais agressivo.",
+        "slider_ceil_release": "Supressão de fundo: memória",
+        "slider_ceil_release_hint": "Por quanto tempo o nível de fundo é lembrado entre picos.",
+        "group_bass": "Graves (motor forte)",
+        "group_treble": "Agudos (motor fraco)",
+        "btn_dpad": "Direcional",
+        "btn_l1": "L1",
+        "btn_l2_press": "L2 (pressionado)",
+        "btn_l3": "L3 (analógico)",
+        "btn_share": "Compartilhar / Criar",
+        "btn_cross": "Cruz (✕)",
+        "btn_circle": "Círculo (○)",
+        "btn_triangle": "Triângulo (△)",
+        "btn_square": "Quadrado (□)",
+        "btn_r1": "R1",
+        "btn_r2_press": "R2 (pressionado)",
+        "btn_r3": "R3 (analógico)",
+        "btn_options": "Options",
+        "btn_ps": "PS",
+        "group_left_side": "Lado esquerdo",
+        "group_right_side": "Lado direito",
+        "button_haptic_title": "Vibração dos botões",
+        "button_haptic_hint": "Enquanto um botão é mantido pressionado, seu motor vibra continuamente — independentemente do som, somando-se à vibração de áudio normal. Botões do lado esquerdo vibram levemente o motor forte/esquerdo, os do lado direito o motor fraco/direito, cada um com sua própria intensidade.",
+        "collapse_show": "Mostrar configurações",
+        "collapse_hide": "Ocultar configurações",
+        "game_profiles_enabled_checkbox": "Usar perfil do jogo",
     },
     "ko": {
         "home_vibration": "진동",
@@ -643,9 +923,6 @@ const STRINGS = {
         "label_led_gamma": "피크 대비",
         "label_led_bass_priority": "베이스 우선순위",
         "game_profiles_title": "게임 프로필",
-        "game_profiles_link_button": "현재 설정을 다음에 연결:",
-        "game_profiles_empty": "아직 연결된 게임이 없습니다 - 게임을 실행하고 위 버튼을 누르세요.",
-        "game_profiles_unlink": "연결 해제",
         "label_direct_gain": "강도",
         "group_language": "언어",
         "trigger_custom_title": "커스텀 효과",
@@ -688,7 +965,45 @@ const STRINGS = {
         "preset_label": "프리셋",
         "profile_label": "프로필",
         "direct_audio_title": "다이렉트 오디오",
-        "mode_label": "모드"
+        "mode_label": "모드",
+        "label_master_gain": "전체 진동 볼륨",
+        "slider_lo": "작동 임계값 (lo)",
+        "slider_lo_hint": "이 수준 이하에서는 모터가 작동하지 않습니다.",
+        "slider_hi": "최대 강도 임계값 (hi)",
+        "slider_hi_hint": "이 수준 이상에서 최대 강도가 됩니다. 값이 낮을수록 민감합니다.",
+        "slider_attack": "어택",
+        "slider_attack_hint": "모터가 목표 강도에 도달하는 속도입니다.",
+        "slider_release": "릴리즈",
+        "slider_release_hint": "모터가 잦아드는 속도입니다. 값이 클수록 반응이 더 짧고 날카롭습니다.",
+        "slider_gamma": "대비 (감마)",
+        "slider_gamma_hint": "1보다 크면 큰 소리에만 반응합니다. 1보다 작으면 작은 소리에도 민감해집니다.",
+        "slider_ceil_attack": "배경 억제: 속도",
+        "slider_ceil_attack_hint": "지속적인 배경음을 억제하는 속도입니다. 값이 낮을수록 더 공격적입니다.",
+        "slider_ceil_release": "배경 억제: 기억 시간",
+        "slider_ceil_release_hint": "피크 사이에 배경 수준을 기억하는 시간입니다.",
+        "group_bass": "저음 (강한 모터)",
+        "group_treble": "고음 (약한 모터)",
+        "btn_dpad": "방향 패드",
+        "btn_l1": "L1",
+        "btn_l2_press": "L2 (누름)",
+        "btn_l3": "L3 (스틱)",
+        "btn_share": "공유 / 만들기",
+        "btn_cross": "✕ (크로스)",
+        "btn_circle": "○ (서클)",
+        "btn_triangle": "△ (트라이앵글)",
+        "btn_square": "□ (스퀘어)",
+        "btn_r1": "R1",
+        "btn_r2_press": "R2 (누름)",
+        "btn_r3": "R3 (스틱)",
+        "btn_options": "옵션",
+        "btn_ps": "PS",
+        "group_left_side": "왼쪽",
+        "group_right_side": "오른쪽",
+        "button_haptic_title": "버튼 진동",
+        "button_haptic_hint": "버튼을 누르고 있는 동안 해당 모터가 소리와 무관하게 계속 진동하며, 일반 오디오 진동과 합쳐집니다. 왼쪽 버튼은 강한/왼쪽 모터를, 오른쪽 버튼은 약한/오른쪽 모터를 각각의 세기로 가볍게 진동시킵니다.",
+        "collapse_show": "설정 표시",
+        "collapse_hide": "설정 숨기기",
+        "game_profiles_enabled_checkbox": "게임 프로필 사용",
     }
 };
 function t(lang, key) {
@@ -700,6 +1015,10 @@ function t(lang, key) {
 // lifecycle) and reads this on every app-launch event, so it needs to see
 // whatever GameProfilesSection last wrote, not a stale closure snapshot.
 let gameProfilesCache = {};
+// Same reasoning as gameProfilesCache above - the app-lifetime handler
+// registered in definePlugin() below needs to read this synchronously,
+// outside React, so it can't just be component state.
+let gameProfilesEnabledCache = true;
 const startEngine = callable("start_engine");
 const stopEngine = callable("stop_engine");
 const isRunning = callable("is_running");
@@ -716,7 +1035,6 @@ const getActiveRef = callable("get_active_ref");
 const applyRef = callable("apply_ref");
 const getGameProfiles = callable("get_game_profiles");
 const setGameProfile = callable("set_game_profile");
-const clearGameProfile = callable("clear_game_profile");
 const listTriggerPresets = callable("list_trigger_presets");
 const getTriggerPreset = callable("get_trigger_preset");
 const applyTriggerPreset = callable("apply_trigger_preset");
@@ -727,6 +1045,13 @@ const getDirectAudio = callable("get_direct_audio");
 const setDirectAudioEnabled = callable("set_direct_audio_enabled");
 const setDirectAudioBtEnabled = callable("set_direct_audio_bt_enabled");
 const setBtChunkMs = callable("set_bt_chunk_ms");
+const setDirectAudioGain = callable("set_direct_audio_gain");
+const getGameProfilesEnabled = callable("get_game_profiles_enabled");
+const setGameProfilesEnabled = callable("set_game_profiles_enabled");
+const getBandSettings = callable("get_band_settings");
+const setBandParam = callable("set_band_param");
+const getButtonHaptics = callable("get_button_haptics");
+const setButtonHaptic = callable("set_button_haptic");
 const getLedVisualizer = callable("get_led_visualizer");
 const setLedVisualizerEnabled = callable("set_led_visualizer_enabled");
 const setLedAttack = callable("set_led_attack");
@@ -869,7 +1194,7 @@ function MainSection({ t }) {
         : status === "searching" ? t("status_searching")
             : status === "overridden" ? t("status_overridden")
                 : status ?? "—";
-    return (SP_JSX.jsxs(DFL.PanelSection, { title: "DualSense Haptics", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: t("home_vibration"), checked: enabled, onChange: onToggle }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: { display: "flex", justifyContent: "space-between", fontSize: "0.85em", opacity: 0.75 }, children: [SP_JSX.jsxs("span", { children: [statusLabel, " \u00B7 ", connectionLabel] }), SP_JSX.jsx("span", { children: battery !== null ? `${battery}%` : "" })] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.DropdownItem, { label: t("preset_label"), rgOptions: presetList.map((p) => ({ data: p, label: t(PRESET_LABEL_KEYS[p] ?? p) })), selectedOption: activePreset, onChange: onPresetChange }) }), profileList.length > 0 && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.DropdownItem, { label: t("profile_label"), rgOptions: profileList.map((p) => ({ data: p, label: p })), selectedOption: activeProfile, onChange: onProfileChange }) })), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t("label_direct_gain"), value: gain, min: 0.2, max: 2.5, step: 0.05, notchTicksVisible: false, onChange: onGainChange }) })] }));
+    return (SP_JSX.jsxs(DFL.PanelSection, { title: "DualSense Haptics", children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: t("home_vibration"), checked: enabled, onChange: onToggle }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: { display: "flex", justifyContent: "space-between", fontSize: "0.85em", opacity: 0.75 }, children: [SP_JSX.jsxs("span", { children: [statusLabel, " \u00B7 ", connectionLabel] }), SP_JSX.jsx("span", { children: battery !== null ? `${battery}%` : "" })] }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.DropdownItem, { label: t("preset_label"), rgOptions: presetList.map((p) => ({ data: p, label: t(PRESET_LABEL_KEYS[p] ?? p) })), selectedOption: activePreset, onChange: onPresetChange }) }), profileList.length > 0 && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.DropdownItem, { label: t("profile_label"), rgOptions: profileList.map((p) => ({ data: p, label: p })), selectedOption: activeProfile, onChange: onProfileChange }) })), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t("label_master_gain"), value: gain, min: 0.2, max: 2.5, step: 0.05, notchTicksVisible: false, onChange: onGainChange }) })] }));
 }
 function TriggerPresetRow({ side, label, t }) {
     const [options, setOptions] = SP_REACT.useState([]);
@@ -900,6 +1225,7 @@ function TriggersSection({ t }) {
 function CustomTriggerCard({ side, label, t }) {
     const [mode, setMode] = SP_REACT.useState("feedback");
     const [values, setValues] = SP_REACT.useState(defaultValues("feedback"));
+    const [detailsOpen, setDetailsOpen] = SP_REACT.useState(false);
     SP_REACT.useEffect(() => {
         (async () => {
             const custom = await getCustomTrigger(side);
@@ -934,14 +1260,28 @@ function CustomTriggerCard({ side, label, t }) {
         else
             await applyCustomTrigger(mode, values, side);
     };
-    return (SP_JSX.jsxs(DFL.PanelSection, { title: `${t("trigger_custom_title")} · ${label}`, children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.DropdownItem, { label: t("mode_label"), rgOptions: TRIGGER_EFFECT_ORDER.map((m) => ({ data: m, label: t(TRIGGER_MODE_LABEL_KEYS[m] ?? m) })), selectedOption: mode, onChange: onModeChange }) }), (TRIGGER_EFFECT_PARAMS[mode] ?? []).map(([key, lo, hi]) => (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: triggerParamLabel(key, t), value: values[key] ?? lo, min: lo, max: hi, step: 1, notchTicksVisible: false, onChange: (v) => onParamChange(key, v) }) }, key))), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: onApply, children: t("btn_apply") }) })] }));
+    return (SP_JSX.jsxs(DFL.PanelSection, { title: `${t("trigger_custom_title")} · ${label}`, children: [SP_JSX.jsx(CollapsibleToggle, { open: detailsOpen, onToggle: () => setDetailsOpen((o) => !o), t: t }), detailsOpen && (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.DropdownItem, { label: t("mode_label"), rgOptions: TRIGGER_EFFECT_ORDER.map((m) => ({ data: m, label: t(TRIGGER_MODE_LABEL_KEYS[m] ?? m) })), selectedOption: mode, onChange: onModeChange }) }), mode !== "off" && (TRIGGER_EFFECT_PARAMS[mode] ?? []).length > 0 && (SP_JSX.jsxs(SP_JSX.Fragment, { children: [(TRIGGER_EFFECT_PARAMS[mode] ?? []).map(([key, lo, hi]) => (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: triggerParamLabel(key, t), value: values[key] ?? lo, min: lo, max: hi, step: 1, notchTicksVisible: false, onChange: (v) => onParamChange(key, v) }) }, key))), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: onApply, children: t("btn_apply") }) })] }))] }))] }));
+}
+// Decky's @decky/ui has no built-in collapsible/accordion (checked its
+// index.d.ts) - this hand-rolls one using ButtonItem (rather than a plain
+// clickable <div>) so it stays reachable via the Deck's D-pad/focus-based
+// navigation, not just a mouse/touch pointer.
+function CollapsibleToggle({ open, onToggle, t }) {
+    return (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: onToggle, children: open ? `▼ ${t("collapse_hide")}` : `▶ ${t("collapse_show")}` }) }));
+}
+function CollapsibleSection({ title, t, children }) {
+    const [open, setOpen] = SP_REACT.useState(false);
+    return (SP_JSX.jsxs(DFL.PanelSection, { title: title, children: [SP_JSX.jsx(CollapsibleToggle, { open: open, onToggle: () => setOpen((o) => !o), t: t }), open && children] }));
 }
 function DirectAudioSection({ t }) {
     const [directAudio, setDirectAudioState] = SP_REACT.useState({
         enabled: true, gain: 5.0, bt_enabled: false, bt_chunk_ms: 20,
     });
     SP_REACT.useEffect(() => {
-        (async () => setDirectAudioState(await getDirectAudio()))();
+        (async () => {
+            const fetched = await getDirectAudio();
+            setDirectAudioState({ ...fetched, gain: snapToStep(fetched.gain, 1.0, 0.1) });
+        })();
     }, []);
     const onUsbToggle = async (value) => {
         setDirectAudioState((d) => ({ ...d, enabled: value }));
@@ -951,16 +1291,30 @@ function DirectAudioSection({ t }) {
         setDirectAudioState((d) => ({ ...d, bt_enabled: value }));
         await setDirectAudioBtEnabled(value);
     };
-    const onChunkMsChange = async (value) => {
-        setDirectAudioState((d) => ({ ...d, bt_chunk_ms: value }));
-        await setBtChunkMs(value);
+    const onChunkMsChange = async (option) => {
+        setDirectAudioState((d) => ({ ...d, bt_chunk_ms: option.data }));
+        await setBtChunkMs(option.data);
     };
-    return (SP_JSX.jsxs(DFL.PanelSection, { title: t("direct_audio_title"), children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: `USB — ${t("direct_audio_checkbox")}`, checked: directAudio.enabled, onChange: onUsbToggle }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: t("direct_audio_bt_checkbox"), checked: directAudio.bt_enabled, onChange: onBtToggle }) }), directAudio.bt_enabled && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t("label_bt_chunk_ms"), value: directAudio.bt_chunk_ms, min: 10, max: 30, step: 1, notchTicksVisible: false, onChange: onChunkMsChange }) }))] }));
+    const onGainChange = async (value) => {
+        setDirectAudioState((d) => ({ ...d, gain: value }));
+        await setDirectAudioGain(value);
+    };
+    return (SP_JSX.jsxs(CollapsibleSection, { title: t("direct_audio_title"), t: t, children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: `USB — ${t("direct_audio_checkbox")}`, checked: directAudio.enabled, onChange: onUsbToggle }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: t("direct_audio_bt_checkbox"), checked: directAudio.bt_enabled, onChange: onBtToggle }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t("label_direct_gain"), value: directAudio.gain, min: 1.0, max: 8.0, step: 0.1, notchTicksVisible: false, onChange: onGainChange }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.DropdownItem, { label: t("label_bt_chunk_ms"), rgOptions: BT_CHUNK_MS_CHOICES.map((v) => ({ data: v, label: `${v} ms` })), selectedOption: directAudio.bt_chunk_ms, onChange: onChunkMsChange }) })] }));
 }
 function LedVisualizerSection({ t }) {
     const [led, setLed] = SP_REACT.useState({ enabled: false, attack: 0.5, release: 0.08, gamma: 1.8, bass_priority: 0.6 });
+    const [detailsOpen, setDetailsOpen] = SP_REACT.useState(false);
     SP_REACT.useEffect(() => {
-        (async () => setLed(await getLedVisualizer()))();
+        (async () => {
+            const fetched = await getLedVisualizer();
+            setLed({
+                ...fetched,
+                attack: snapToStep(fetched.attack, 0.05, 0.05),
+                release: snapToStep(fetched.release, 0.0, 0.05),
+                gamma: snapToStep(fetched.gamma, 0.5, 0.25),
+                bass_priority: snapToStep(fetched.bass_priority, 0.0, 0.1),
+            });
+        })();
     }, []);
     const onToggle = async (value) => {
         setLed((l) => ({ ...l, enabled: value }));
@@ -982,15 +1336,145 @@ function LedVisualizerSection({ t }) {
         setLed((l) => ({ ...l, bass_priority: value }));
         await setLedBassPriority(value);
     };
-    return (SP_JSX.jsxs(DFL.PanelSection, { title: t("led_visualizer_title"), children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: t("led_visualizer_checkbox"), checked: led.enabled, onChange: onToggle }) }), led.enabled && (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t("label_led_attack"), value: led.attack, min: 0.05, max: 1.0, step: 0.05, notchTicksVisible: false, onChange: onAttackChange }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t("label_led_release"), value: led.release, min: 0.01, max: 0.5, step: 0.01, notchTicksVisible: false, onChange: onReleaseChange }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t("label_led_gamma"), value: led.gamma, min: 0.5, max: 3.0, step: 0.1, notchTicksVisible: false, onChange: onGammaChange }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t("label_led_bass_priority"), value: led.bass_priority, min: 0.0, max: 1.0, step: 0.05, notchTicksVisible: false, onChange: onBassPriorityChange }) })] }))] }));
+    return (SP_JSX.jsxs(DFL.PanelSection, { title: t("led_visualizer_title"), children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: t("led_visualizer_checkbox"), checked: led.enabled, onChange: onToggle }) }), led.enabled && (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(CollapsibleToggle, { open: detailsOpen, onToggle: () => setDetailsOpen((o) => !o), t: t }), detailsOpen && (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t("label_led_attack"), value: led.attack, min: 0.05, max: 1.0, step: 0.05, notchTicksVisible: false, onChange: onAttackChange }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t("label_led_release"), value: led.release, min: 0.0, max: 0.5, step: 0.05, notchTicksVisible: false, onChange: onReleaseChange }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t("label_led_gamma"), value: led.gamma, min: 0.5, max: 3.0, step: 0.25, notchTicksVisible: false, onChange: onGammaChange }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t("label_led_bass_priority"), value: led.bass_priority, min: 0.0, max: 1.0, step: 0.1, notchTicksVisible: false, onChange: onBassPriorityChange }) })] }))] }))] }));
+}
+// Desktop's own slider is a continuous 1000-step control (see ui.py's
+// ParamSlider), so values it saved can land anywhere in a range - not
+// necessarily on one of Decky's SliderField fixed `step` positions (e.g.
+// direct_audio.gain saved as 4.85 with this panel's step=0.1, which sits
+// exactly between the 4.8/4.9 notches). Confirmed on real hardware that
+// handing SliderField such an off-grid value makes its drag handle fail to
+// render at all - snap to the nearest valid notch before ever setting state.
+// Mirrors haptics_engine.py's BT_CHUNK_MS_CHOICES (10, BT_CHUNK_MS=20, 30) -
+// a dropdown rather than a slider, both because a 3-way choice doesn't need
+// fine-grained control and because SliderField couldn't render a handle for
+// this particular value at all (see the git history on this file).
+const BT_CHUNK_MS_CHOICES = [10, 20, 30];
+function decimalsFor(step) {
+    const s = step.toString();
+    const i = s.indexOf(".");
+    return i === -1 ? 0 : s.length - i - 1;
+}
+function snapToStep(value, min, step) {
+    const snapped = min + Math.round((value - min) / step) * step;
+    // The arithmetic above can leave binary-floating-point noise on values
+    // that aren't exactly representable (0.08, 1.8, 0.6, ... - unlike 0.5,
+    // which is) - e.g. 0.08000000000000002 instead of 0.08. Confirmed on real
+    // hardware that SliderField's drag handle fails to render at all for such
+    // a value, even though it's numerically "close enough" - clean it up to
+    // the step's own decimal precision.
+    return parseFloat(snapped.toFixed(decimalsFor(step)));
+}
+const BAND_LABEL_KEYS = {
+    lo: "slider_lo", hi: "slider_hi", attack: "slider_attack", release: "slider_release",
+    gamma: "slider_gamma", attack_s: "slider_ceil_attack", release_s: "slider_ceil_release",
+};
+// [min, max, step] - matches ui.py's ParamSlider construction for band_group() exactly.
+const BAND_RANGES = {
+    lo: [0.0, 0.05, 0.001],
+    hi: [0.01, 0.3, 0.005],
+    attack: [0.5, 0.99, 0.01],
+    release: [0.1, 0.9, 0.01],
+    gamma: [0.4, 2.5, 0.05],
+    attack_s: [0.02, 0.5, 0.01],
+    release_s: [0.3, 5.0, 0.1],
+};
+const BAND_KEYS = ["lo", "hi", "attack", "release", "gamma", "attack_s", "release_s"];
+function BandSection({ band, title, t }) {
+    const [settings, setSettings] = SP_REACT.useState({
+        lo: 0.01, hi: 0.1, attack: 0.95, release: 0.5, gamma: 1.0, attack_s: 0.08, release_s: 2.5,
+    });
+    SP_REACT.useEffect(() => {
+        (async () => {
+            const fetched = await getBandSettings(band);
+            const snapped = { ...fetched };
+            for (const key of BAND_KEYS) {
+                const [min, , step] = BAND_RANGES[key];
+                snapped[key] = snapToStep(fetched[key], min, step);
+            }
+            setSettings(snapped);
+        })();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [band]);
+    const onChange = (key) => async (value) => {
+        setSettings((s) => ({ ...s, [key]: value }));
+        await setBandParam(band, key, value);
+    };
+    return (SP_JSX.jsx(CollapsibleSection, { title: title, t: t, children: BAND_KEYS.map((key) => {
+            const [min, max, step] = BAND_RANGES[key];
+            return (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t(BAND_LABEL_KEYS[key]), value: settings[key], min: min, max: max, step: step, notchTicksVisible: false, onChange: onChange(key) }) }, key));
+        }) }));
+}
+// Real evdev button codes (confirmed via `python3 -c "from evdev import ecodes"`,
+// matching ui.py's LEFT_BUTTON_OPTIONS/RIGHT_BUTTON_OPTIONS and
+// haptics_engine.py's DPAD_VIRTUAL_CODE) - button_haptics config keys are
+// str(code) on the Python side.
+const LEFT_BUTTON_OPTIONS = [
+    ["btn_dpad", -1],
+    ["btn_l1", 310],
+    ["btn_l2_press", 312],
+    ["btn_l3", 317],
+    ["btn_share", 314],
+];
+const RIGHT_BUTTON_OPTIONS = [
+    ["btn_cross", 304],
+    ["btn_circle", 305],
+    ["btn_triangle", 307],
+    ["btn_square", 308],
+    ["btn_r1", 311],
+    ["btn_r2_press", 313],
+    ["btn_r3", 318],
+    ["btn_options", 315],
+    ["btn_ps", 316],
+];
+function ButtonHapticRow({ labelKey, code, t, entry, onChange }) {
+    const onToggle = (value) => onChange(code, { ...entry, enabled: value });
+    const onStrength = (value) => onChange(code, { ...entry, strength: value });
+    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: t(labelKey), checked: entry.enabled, onChange: onToggle }) }), entry.enabled && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t("trig_param_strength"), value: entry.strength, min: 0.0, max: 1.0, step: 0.05, notchTicksVisible: false, onChange: onStrength }) }))] }));
+}
+function ButtonHapticsSection({ t }) {
+    const [entries, setEntries] = SP_REACT.useState({});
+    SP_REACT.useEffect(() => {
+        (async () => {
+            const fetched = await getButtonHaptics();
+            const snapped = {};
+            for (const [code, entry] of Object.entries(fetched)) {
+                snapped[code] = { ...entry, strength: snapToStep(entry.strength, 0.0, 0.05) };
+            }
+            setEntries(snapped);
+        })();
+    }, []);
+    const entryFor = (code) => entries[String(code)] ?? { enabled: false, strength: 0.4 };
+    const onRowChange = async (code, entry) => {
+        setEntries((e) => ({ ...e, [String(code)]: entry }));
+        await setButtonHaptic(String(code), entry.enabled, entry.strength);
+    };
+    const renderGroup = (options) => options.map(([labelKey, code]) => (SP_JSX.jsx(ButtonHapticRow, { labelKey: labelKey, code: code, t: t, entry: entryFor(code), onChange: onRowChange }, code)));
+    return (SP_JSX.jsxs(CollapsibleSection, { title: t("button_haptic_title"), t: t, children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("span", { style: { fontSize: "0.85em", opacity: 0.75 }, children: t("group_left_side") }) }), renderGroup(LEFT_BUTTON_OPTIONS), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("span", { style: { fontSize: "0.85em", opacity: 0.75 }, children: t("group_right_side") }) }), renderGroup(RIGHT_BUTTON_OPTIONS)] }));
+}
+// Shared between the enable toggle below and the app-launch handler in
+// definePlugin(): if this app already has a linked profile, switch to it;
+// otherwise create one from whatever's currently active. Module-level (not
+// inside a component) since the launch handler runs outside React entirely.
+async function linkOrApplyGame(appid, name) {
+    const entry = gameProfilesCache[appid];
+    if (entry) {
+        await applyRef(entry.ref);
+    }
+    else {
+        const ref = await getActiveRef();
+        await setGameProfile(appid, name, ref);
+        gameProfilesCache = { ...gameProfilesCache, [appid]: { name, ref } };
+    }
 }
 function GameProfilesSection({ t }) {
-    const [mappings, setMappings] = SP_REACT.useState({});
     const [runningApp, setRunningApp] = SP_REACT.useState(null);
+    const [enabled, setEnabled] = SP_REACT.useState(true);
     SP_REACT.useEffect(() => {
         (async () => {
             gameProfilesCache = await getGameProfiles();
-            setMappings(gameProfilesCache);
+            gameProfilesEnabledCache = await getGameProfilesEnabled();
+            setEnabled(gameProfilesEnabledCache);
         })();
         const interval = setInterval(() => {
             const app = DFL.Router.MainRunningApp;
@@ -998,23 +1482,22 @@ function GameProfilesSection({ t }) {
         }, 2000);
         return () => clearInterval(interval);
     }, []);
-    const onLink = async () => {
-        if (!runningApp)
-            return;
-        const ref = await getActiveRef();
-        await setGameProfile(runningApp.appid, runningApp.name, ref);
-        gameProfilesCache = { ...gameProfilesCache, [runningApp.appid]: { name: runningApp.name, ref } };
-        setMappings(gameProfilesCache);
+    // Turning this on counts as a launch event for whatever game is running
+    // right now: switches to its profile if it already has one, otherwise
+    // links it to whatever's currently active (see linkOrApplyGame). From then
+    // on, every actual game launch while this stays on does the same thing
+    // automatically - see the RegisterForAppLifetimeNotifications handler in
+    // definePlugin() below. Turning it off just stops intervening on launches;
+    // whatever preset/profile is manually selected stays in effect.
+    const onEnabledToggle = async (value) => {
+        gameProfilesEnabledCache = value;
+        setEnabled(value);
+        await setGameProfilesEnabled(value);
+        if (value && runningApp) {
+            await linkOrApplyGame(runningApp.appid, runningApp.name);
+        }
     };
-    const onUnlink = async (appId) => {
-        await clearGameProfile(appId);
-        const next = { ...gameProfilesCache };
-        delete next[appId];
-        gameProfilesCache = next;
-        setMappings(next);
-    };
-    const entries = Object.entries(mappings);
-    return (SP_JSX.jsxs(DFL.PanelSection, { title: t("game_profiles_title"), children: [runningApp && (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs(DFL.ButtonItem, { layout: "below", onClick: onLink, children: [t("game_profiles_link_button"), " \u00B7 ", runningApp.name] }) })), entries.length === 0 ? (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx("span", { style: { fontSize: "0.85em", opacity: 0.75 }, children: t("game_profiles_empty") }) })) : (entries.map(([appId, entry]) => (SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsxs("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" }, children: [SP_JSX.jsx("span", { children: entry.name }), SP_JSX.jsx(DFL.ButtonItem, { layout: "below", onClick: () => onUnlink(appId), children: t("game_profiles_unlink") })] }) }, appId))))] }));
+    return (SP_JSX.jsx(DFL.PanelSection, { title: t("game_profiles_title"), children: SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: t("game_profiles_enabled_checkbox"), checked: enabled, onChange: onEnabledToggle }) }) }));
 }
 function SettingsSection({ lang, onLangChange, t }) {
     return (SP_JSX.jsx(DFL.PanelSection, { title: t("group_language"), children: SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.DropdownItem, { label: t("group_language"), rgOptions: LANGUAGES.map(([code, name]) => ({ data: code, label: name })), selectedOption: lang, onChange: (option) => onLangChange(option.data) }) }) }));
@@ -1029,22 +1512,25 @@ function Root() {
         setLang(code);
         await setLanguage(code);
     };
-    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(MainSection, { t: t$1 }), SP_JSX.jsx(GameProfilesSection, { t: t$1 }), SP_JSX.jsx(TriggersSection, { t: t$1 }), SP_JSX.jsx(CustomTriggerCard, { side: "left", label: t$1("trigger_left_title"), t: t$1 }), SP_JSX.jsx(CustomTriggerCard, { side: "right", label: t$1("trigger_right_title"), t: t$1 }), SP_JSX.jsx(DirectAudioSection, { t: t$1 }), SP_JSX.jsx(LedVisualizerSection, { t: t$1 }), SP_JSX.jsx(SettingsSection, { lang: lang, onLangChange: onLangChange, t: t$1 })] }));
+    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(MainSection, { t: t$1 }), SP_JSX.jsx(GameProfilesSection, { t: t$1 }), SP_JSX.jsx(TriggersSection, { t: t$1 }), SP_JSX.jsx(CustomTriggerCard, { side: "left", label: t$1("trigger_left_title"), t: t$1 }), SP_JSX.jsx(CustomTriggerCard, { side: "right", label: t$1("trigger_right_title"), t: t$1 }), SP_JSX.jsx(DirectAudioSection, { t: t$1 }), SP_JSX.jsx(LedVisualizerSection, { t: t$1 }), SP_JSX.jsx(BandSection, { band: "bass", title: t$1("group_bass"), t: t$1 }), SP_JSX.jsx(BandSection, { band: "treble", title: t$1("group_treble"), t: t$1 }), SP_JSX.jsx(ButtonHapticsSection, { t: t$1 }), SP_JSX.jsx(SettingsSection, { lang: lang, onLangChange: onLangChange, t: t$1 })] }));
 }
 var index = definePlugin(() => {
     (async () => {
         gameProfilesCache = await getGameProfiles();
+        gameProfilesEnabledCache = await getGameProfilesEnabled();
     })();
     // Registered once, outside any component's lifecycle, since a Steam game
     // can launch while the QAM panel (and GameProfilesSection) isn't even
     // mounted - reads gameProfilesCache (kept current by GameProfilesSection)
-    // rather than a value captured at registration time.
+    // rather than a value captured at registration time. Same for
+    // gameProfilesEnabledCache - the global on/off toggle for this whole
+    // mechanism.
     const lifetimeReg = SteamClient.GameSessions.RegisterForAppLifetimeNotifications((notification) => {
-        if (!notification.bRunning)
+        if (!notification.bRunning || !gameProfilesEnabledCache)
             return;
-        const entry = gameProfilesCache[String(notification.unAppID)];
-        if (entry)
-            applyRef(entry.ref);
+        const appid = String(notification.unAppID);
+        const name = DFL.Router.MainRunningApp?.display_name ?? appid;
+        linkOrApplyGame(appid, name);
     });
     return {
         name: "DualSense Haptics",

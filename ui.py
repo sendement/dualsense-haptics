@@ -24,7 +24,7 @@ from presets import (
     PRESETS, PRESET_ORDER, preset_params, TRIGGER_PRESETS, TRIGGER_PRESET_ORDER,
     TRIGGER_EFFECT_ORDER, TRIGGER_EFFECT_PARAMS,
 )
-from haptics_engine import DPAD_VIRTUAL_CODE, BT_CHUNK_MS, BT_CHUNK_MS_MIN, BT_CHUNK_MS_MAX
+from haptics_engine import DPAD_VIRTUAL_CODE, BT_CHUNK_MS, BT_CHUNK_MS_CHOICES
 import bt_hid_proxy
 import triggers
 import theme
@@ -1173,14 +1173,19 @@ class AdvancedPage(QWidget):
         self.direct_bt_check.toggled.connect(self._set_direct_bt_enabled)
         dl.addWidget(self.direct_bt_check)
 
-        self.bt_chunk_ms_slider = IntSlider(
-            t("label_bt_chunk_ms"), BT_CHUNK_MS_MIN, BT_CHUNK_MS_MAX,
-            direct_cfg.get("bt_chunk_ms", BT_CHUNK_MS), self._set_bt_chunk_ms)
-        dl.addWidget(self.bt_chunk_ms_slider)
         bt_chunk_ms_hint = QLabel(t("bt_chunk_ms_hint"))
         bt_chunk_ms_hint.setProperty("role", "hint")
         bt_chunk_ms_hint.setWordWrap(True)
         dl.addWidget(bt_chunk_ms_hint)
+        self.bt_chunk_ms_combo = QComboBox()
+        for value in BT_CHUNK_MS_CHOICES:
+            self.bt_chunk_ms_combo.addItem(f"{value} ms", value)
+        current_chunk_ms = direct_cfg.get("bt_chunk_ms", BT_CHUNK_MS)
+        idx = next((i for i, v in enumerate(BT_CHUNK_MS_CHOICES) if v == current_chunk_ms), 1)
+        self.bt_chunk_ms_combo.setCurrentIndex(idx)
+        self.bt_chunk_ms_combo.currentIndexChanged.connect(
+            lambda i: self._set_bt_chunk_ms(self.bt_chunk_ms_combo.itemData(i)))
+        dl.addWidget(self.bt_chunk_ms_combo)
 
         inner_layout.addWidget(direct_box)
 
@@ -1301,7 +1306,11 @@ class AdvancedPage(QWidget):
         self.direct_bt_check.blockSignals(True)
         self.direct_bt_check.setChecked(direct_cfg.get("bt_enabled", False))
         self.direct_bt_check.blockSignals(False)
-        self.bt_chunk_ms_slider.set_value(direct_cfg.get("bt_chunk_ms", BT_CHUNK_MS))
+        current_chunk_ms = direct_cfg.get("bt_chunk_ms", BT_CHUNK_MS)
+        idx = next((i for i, v in enumerate(BT_CHUNK_MS_CHOICES) if v == current_chunk_ms), 1)
+        self.bt_chunk_ms_combo.blockSignals(True)
+        self.bt_chunk_ms_combo.setCurrentIndex(idx)
+        self.bt_chunk_ms_combo.blockSignals(False)
         self.bt_proxy_check.blockSignals(True)
         self.bt_proxy_check.setChecked(self.state["active"]["bt_hid_proxy"].get("enabled", False))
         self.bt_proxy_check.blockSignals(False)

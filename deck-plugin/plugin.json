@@ -1,7 +1,7 @@
 {
   "name": "DualSense Haptics",
   "author": "sendement",
-  "flags": ["debug"],
+  "flags": ["debug", "root"],
   "api_version": 1,
   "publish": {
     "tags": ["controller", "dualsense", "haptics", "audio"],

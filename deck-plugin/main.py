@@ -100,6 +100,19 @@ def _write_config(raw):
         json.dump(raw, f, indent=2, ensure_ascii=False)
 
 
+# Mirrors haptics_engine.py's DEFAULT_CONFIG bass/treble(_ceiling) entries -
+# not imported directly (see this file's own module docstring), so kept in
+# sync by hand like the rest of this file's config fallbacks.
+_DEFAULT_BAND = {
+    "bass": {"attack": 0.95, "release": 0.5, "lo": 0.010, "hi": 0.12, "gamma": 1.3},
+    "treble": {"attack": 0.95, "release": 0.55, "lo": 0.003, "hi": 0.045, "gamma": 0.7},
+}
+_DEFAULT_CEILING = {
+    "bass": {"attack_s": 0.08, "release_s": 2.5},
+    "treble": {"attack_s": 0.05, "release_s": 2.0},
+}
+
+
 def _build_custom_args(mode, values):
     """Duplicated from triggers.py (not importable here - see module
     docstring): "end"-style params must exceed their paired "start" param or
@@ -273,9 +286,17 @@ class Plugin:
         _write_config(raw)
         return True
 
-    async def clear_game_profile(self, app_id: str) -> bool:
+    async def get_game_profiles_enabled(self) -> bool:
+        """Gates whether a launching game's linked profile (see
+        get_game_profiles above) actually gets auto-applied - default True to
+        match this feature's original always-on behavior. False means stay on
+        whatever preset/profile is manually selected, ignoring any links."""
         raw = _read_config() or {}
-        raw.get("game_profiles", {}).pop(app_id, None)
+        return raw.get("game_profiles_enabled", True)
+
+    async def set_game_profiles_enabled(self, value: bool) -> bool:
+        raw = _read_config() or {}
+        raw["game_profiles_enabled"] = value
         _write_config(raw)
         return True
 
@@ -338,6 +359,12 @@ class Plugin:
         _write_config(raw)
         return True
 
+    async def set_direct_audio_gain(self, value: float) -> bool:
+        raw = _read_config() or {}
+        raw.setdefault("active", {}).setdefault("direct_audio", {})["gain"] = value
+        _write_config(raw)
+        return True
+
     async def get_led_visualizer(self) -> dict:
         raw = _read_config() or {}
         return raw.get("active", {}).get(
@@ -370,6 +397,37 @@ class Plugin:
     async def set_led_bass_priority(self, value: float) -> bool:
         raw = _read_config() or {}
         raw.setdefault("active", {}).setdefault("led_visualizer", {})["bass_priority"] = value
+        _write_config(raw)
+        return True
+
+    async def get_band_settings(self, band: str) -> dict:
+        """band is "bass" or "treble" - merges active[band] (lo/hi/attack/
+        release/gamma) with active[f"{band}_ceiling"] (attack_s/release_s)
+        into one flat dict, matching ui.py's band_group() grouping. Defaults
+        match haptics_engine.py's DEFAULT_CONFIG (not imported directly -
+        see this file's own module docstring on why evdev-importing modules
+        stay out of this process)."""
+        raw = _read_config() or {}
+        active = raw.get("active", {})
+        return {**_DEFAULT_BAND[band], **_DEFAULT_CEILING[band],
+                **active.get(band, {}), **active.get(f"{band}_ceiling", {})}
+
+    async def set_band_param(self, band: str, key: str, value: float) -> bool:
+        raw = _read_config() or {}
+        active = raw.setdefault("active", {})
+        target = f"{band}_ceiling" if key in ("attack_s", "release_s") else band
+        active.setdefault(target, {})[key] = value
+        _write_config(raw)
+        return True
+
+    async def get_button_haptics(self) -> dict:
+        raw = _read_config() or {}
+        return raw.get("active", {}).get("button_haptics", {})
+
+    async def set_button_haptic(self, code: str, enabled: bool, strength: float) -> bool:
+        raw = _read_config() or {}
+        raw.setdefault("active", {}).setdefault("button_haptics", {})[code] = \
+            {"enabled": enabled, "strength": strength}
         _write_config(raw)
         return True
 
