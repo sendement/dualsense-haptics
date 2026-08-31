@@ -286,6 +286,21 @@ def find_ff_device():
             d = evdev.InputDevice(path)
         except OSError:
             continue
+        if d.uniq == bt_hid_proxy.CLONE_UNIQ:
+            # Our own proxy clone (see bt_hid_proxy.py) advertises the same
+            # vendor/product/FF_RUMBLE capability as the real DualSense on
+            # purpose (so Steam can't tell them apart), which means this
+            # function can't either without an explicit check - confirmed on
+            # real hardware that once the real device disconnects (leaving
+            # only the still-alive clone - see BtHidProxySession.detach()),
+            # this would otherwise pick the clone right back up as "the"
+            # controller and hand it to _session() as if freshly connected,
+            # rather than falling through to _service_bt_proxy_idle()'s
+            # detached-servicing path. Note d.phys is *not* a reliable way
+            # to detect this: it reads back blank for a uhid-backed input
+            # device regardless of what build_create2() set at the HID
+            # level, unlike d.uniq which does correctly reflect CLONE_UNIQ.
+            continue
         if (ecodes.EV_FF in d.capabilities()
                 and d.info.vendor == SONY_VENDOR_ID
                 and d.info.product in DUALSENSE_PRODUCT_IDS):
