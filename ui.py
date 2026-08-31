@@ -1035,9 +1035,10 @@ class TriggersPage(QWidget):
 
 
 class ButtonHapticRow(QWidget):
-    """One button: checkbox + inline strength and click-tone sliders, kept to
-    a single compact row so a whole group of buttons reads as a list, not a
-    stack of cards. The tone slider only matters on the literal-PCM/SAxense
+    """One button: checkbox on its own line, strength and click-tone sliders
+    stacked below it (one per row) rather than crammed alongside the
+    checkbox - keeps each slider readably wide even with 14 of these listed
+    at once. The tone slider only matters on the literal-PCM/SAxense
     sessions - see DEFAULT_CONFIG's button_haptics comment - but is always
     shown since it's cheap to ignore on the FF_RUMBLE path."""
 
@@ -1045,33 +1046,40 @@ class ButtonHapticRow(QWidget):
         super().__init__()
         self.code = code
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 2, 0, 2)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 4, 0, 4)
+        layout.setSpacing(2)
 
         self.check = QCheckBox(label)
-        self.check.setMinimumWidth(140)
-        self.check.setChecked(entry.get("enabled", False))
         layout.addWidget(self.check)
 
+        strength_row = QHBoxLayout()
+        strength_label = QLabel(t("trig_param_strength"))
+        strength_label.setMinimumWidth(70)
+        strength_row.addWidget(strength_label)
         self.slider = QSlider(Qt.Horizontal)
         self.slider.setRange(0, 1000)
         self.slider.setValue(int(entry.get("strength", 0.4) * 1000))
-        layout.addWidget(self.slider, 1)
-
+        strength_row.addWidget(self.slider, 1)
         self.value_label = QLabel(f"{entry.get('strength', 0.4):.2f}")
         self.value_label.setProperty("role", "value")
         self.value_label.setFixedWidth(36)
-        layout.addWidget(self.value_label)
+        strength_row.addWidget(self.value_label)
+        layout.addLayout(strength_row)
 
+        hz_row = QHBoxLayout()
+        hz_label = QLabel(t("trig_param_frequency"))
+        hz_label.setMinimumWidth(70)
+        hz_row.addWidget(hz_label)
         self.hz_slider = QSlider(Qt.Horizontal)
         self.hz_slider.setRange(BUTTON_CLICK_HZ_MIN, BUTTON_CLICK_HZ_MAX)
         self.hz_slider.setValue(int(entry.get("click_hz", BUTTON_CLICK_HZ)))
-        layout.addWidget(self.hz_slider, 1)
-
+        hz_row.addWidget(self.hz_slider, 1)
         self.hz_value_label = QLabel(f"{int(entry.get('click_hz', BUTTON_CLICK_HZ))} Hz")
         self.hz_value_label.setProperty("role", "value")
         self.hz_value_label.setFixedWidth(50)
-        layout.addWidget(self.hz_value_label)
+        hz_row.addWidget(self.hz_value_label)
+        layout.addLayout(hz_row)
 
 
 class ButtonHapticPage(QWidget):
