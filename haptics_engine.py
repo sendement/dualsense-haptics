@@ -601,8 +601,15 @@ class HapticsEngine(threading.Thread):
                 last_heartbeat = now
             if session.uhid_fd is not None:
                 readable, _, _ = select.select([session.uhid_fd], [], [], 0.1)
-                if readable:
+                # Drain everything currently queued, not just one report -
+                # confirmed on real hardware that Steam can burst writes
+                # against a detached clone it still thinks is present faster
+                # than one-per-~100ms-poll can keep up with, overflowing the
+                # kernel's bounded uhid queue ("Output queue is full" in
+                # dmesg, continuously, for as long as the burst lasts).
+                while readable:
                     session.relay_output_or_get_report()
+                    readable, _, _ = select.select([session.uhid_fd], [], [], 0)
             else:
                 self._stop_event.wait(0.1)
         return self._stop_event.is_set()
@@ -1186,7 +1193,16 @@ class HapticsEngine(threading.Thread):
                 if session.real_fd in readable:
                     session.relay_input()
                 if session.uhid_fd in readable:
-                    session.relay_output_or_get_report()
+                    # Drain everything currently queued, not just this one
+                    # readable notification - see _service_bt_proxy_idle's
+                    # identical comment on why a burst can otherwise overflow
+                    # the kernel's bounded uhid queue faster than one-per-
+                    # tick keeps up with.
+                    while True:
+                        session.relay_output_or_get_report()
+                        more, _, _ = select.select([session.uhid_fd], [], [], 0)
+                        if not more:
+                            break
 
                 now = time.monotonic()
                 if now - last_status_emit > 1.5:
@@ -1375,7 +1391,16 @@ class HapticsEngine(threading.Thread):
                 if session.real_fd in readable:
                     session.relay_input()
                 if session.uhid_fd in readable:
-                    session.relay_output_or_get_report()
+                    # Drain everything currently queued, not just this one
+                    # readable notification - see _service_bt_proxy_idle's
+                    # identical comment on why a burst can otherwise overflow
+                    # the kernel's bounded uhid queue faster than one-per-
+                    # tick keeps up with.
+                    while True:
+                        session.relay_output_or_get_report()
+                        more, _, _ = select.select([session.uhid_fd], [], [], 0)
+                        if not more:
+                            break
 
                 now = time.monotonic()
                 if now - last_status_emit > 1.5:
