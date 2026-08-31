@@ -308,6 +308,32 @@ def find_ff_device():
     return None
 
 
+def find_clone_ff_device():
+    """The proxy clone's own evdev interface - opposite filter from
+    find_ff_device(). Needed because BtHidProxySession.attach() can lock the
+    real device's nodes (chmod 0600, see its own comment on why this has to
+    happen before Steam can grab them) well before the real device's evdev
+    interface is even visible to find_ff_device() - and once locked, not
+    even this same unprivileged process can freshly open it again, only the
+    fd attach() already had open beforehand. Confirmed on real hardware:
+    without this, run() gets stuck treating an already-internally-attached
+    proxy session as "still searching" forever, since find_ff_device() can
+    no longer see the (now correctly excluded) clone as a stand-in the way
+    it accidentally did before that exclusion was added. Reading input from
+    the clone instead is sound: BtHidProxySession.relay_input() mirrors the
+    real device's raw input reports onto it continuously once attached, so
+    the clone's own resulting evdev events are the same as the real
+    device's."""
+    for path in evdev.list_devices():
+        try:
+            d = evdev.InputDevice(path)
+        except OSError:
+            continue
+        if d.uniq == bt_hid_proxy.CLONE_UNIQ and ecodes.EV_FF in d.capabilities():
+            return d
+    return None
+
+
 def connection_kind(dev):
     """"usb" / "bluetooth" / None, read from the evdev bus type - the same
     controller (and evdev name) shows up over either transport, only the
@@ -333,6 +359,19 @@ _PLAYER_LED_RE = re.compile(r".*:white:player-(\d)$")
 # smooth since _led_smooth()'s own attack/release envelope is what actually
 # produces the perceived motion, not the raw write rate.
 LED_WRITE_INTERVAL_S = 0.08
+
+# Caps how many clone /dev/uhid reports get drained in a single go (see the
+# three call sites below) - draining unconditionally "while readable"
+# fixed the queue-overflow warnings, but confirmed on real hardware to
+# introduce a worse problem under a genuinely sustained (not just bursty)
+# write rate from Steam: that loop could run indefinitely, starving
+# relay_input() (the real controller's own input forwarding) in the same
+# tick - and Steam disconnects a clone whose input goes quiet for too long,
+# exactly the "Controller device closed after hid_read failure" behavior
+# documented elsewhere in this file. 32 matches the kernel's own uhid queue
+# depth (UHID_BUFSIZE in drivers/hid/uhid.c) - there's never anything left
+# to gain by draining more than that in one pass anyway.
+UHID_MAX_DRAIN_PER_TICK = 32
 
 
 def find_led_paths(dev):
@@ -616,13 +655,16 @@ class HapticsEngine(threading.Thread):
                 last_heartbeat = now
             if session.uhid_fd is not None:
                 readable, _, _ = select.select([session.uhid_fd], [], [], 0.1)
-                # Drain everything currently queued, not just one report -
-                # confirmed on real hardware that Steam can burst writes
-                # against a detached clone it still thinks is present faster
-                # than one-per-~100ms-poll can keep up with, overflowing the
-                # kernel's bounded uhid queue ("Output queue is full" in
-                # dmesg, continuously, for as long as the burst lasts).
-                while readable:
+                # Drain what's queued (bounded - see UHID_MAX_DRAIN_PER_TICK)
+                # rather than just one report - confirmed on real hardware
+                # that Steam can burst writes against a detached clone it
+                # still thinks is present faster than one-per-~100ms-poll
+                # can keep up with, overflowing the kernel's bounded uhid
+                # queue ("Output queue is full" in dmesg, continuously, for
+                # as long as the burst lasts).
+                for _ in range(UHID_MAX_DRAIN_PER_TICK):
+                    if not readable:
+                        break
                     session.relay_output_or_get_report()
                     readable, _, _ = select.select([session.uhid_fd], [], [], 0)
             else:
@@ -632,6 +674,18 @@ class HapticsEngine(threading.Thread):
     def run(self):
         while not self._stop_event.is_set():
             dev = find_ff_device()
+            if dev is None:
+                session = self._bt_proxy_session
+                if session is not None and session.real_fd is not None:
+                    # The proxy session already attached the real device on
+                    # its own (see _service_bt_proxy_idle's fast sysfs-based
+                    # polling) - by now its evdev node is locked to 0600 and
+                    # this process can't freshly open it either, only the fd
+                    # attach() already has. Fall back to the clone's own
+                    # evdev interface rather than getting stuck here
+                    # indefinitely - see find_clone_ff_device()'s own
+                    # comment for why that's a sound substitute.
+                    dev = find_clone_ff_device()
             if dev is None:
                 self._emit_status("searching")
                 self._emit_connection(None)
@@ -1208,12 +1262,16 @@ class HapticsEngine(threading.Thread):
                 if session.real_fd in readable:
                     session.relay_input()
                 if session.uhid_fd in readable:
-                    # Drain everything currently queued, not just this one
+                    # Drain what's queued (bounded - see
+                    # UHID_MAX_DRAIN_PER_TICK) rather than just this one
                     # readable notification - see _service_bt_proxy_idle's
                     # identical comment on why a burst can otherwise overflow
                     # the kernel's bounded uhid queue faster than one-per-
-                    # tick keeps up with.
-                    while True:
+                    # tick keeps up with, and why draining unboundedly here
+                    # specifically caused Steam-visible disconnects (starves
+                    # relay_input() above under a sustained, not just
+                    # bursty, write rate).
+                    for _ in range(UHID_MAX_DRAIN_PER_TICK):
                         session.relay_output_or_get_report()
                         more, _, _ = select.select([session.uhid_fd], [], [], 0)
                         if not more:
@@ -1406,12 +1464,16 @@ class HapticsEngine(threading.Thread):
                 if session.real_fd in readable:
                     session.relay_input()
                 if session.uhid_fd in readable:
-                    # Drain everything currently queued, not just this one
+                    # Drain what's queued (bounded - see
+                    # UHID_MAX_DRAIN_PER_TICK) rather than just this one
                     # readable notification - see _service_bt_proxy_idle's
                     # identical comment on why a burst can otherwise overflow
                     # the kernel's bounded uhid queue faster than one-per-
-                    # tick keeps up with.
-                    while True:
+                    # tick keeps up with, and why draining unboundedly here
+                    # specifically caused Steam-visible disconnects (starves
+                    # relay_input() above under a sustained, not just
+                    # bursty, write rate).
+                    for _ in range(UHID_MAX_DRAIN_PER_TICK):
                         session.relay_output_or_get_report()
                         more, _, _ = select.select([session.uhid_fd], [], [], 0)
                         if not more:
