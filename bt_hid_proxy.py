@@ -483,6 +483,8 @@ class BtHidProxySession:
         self._original_modes = None
         self.last_steam_report = bytearray(DEFAULT_OUTPUT_REPORT)
         self.last_input_report = None
+        # Dedup cache for forward_trigger_only() - see there for why.
+        self._last_forward_report = None
 
     def attach(self):
         """Locks out and opens the real device. The very first call also
@@ -614,6 +616,12 @@ class BtHidProxySession:
         """Releases the real device only - the uhid clone stays alive (see
         attach()) so Steam never sees it disappear. Safe to call even if
         attach() never succeeded."""
+        # A reconnect gets a physically fresh real device that's back at its
+        # own power-on defaults, regardless of whatever forward_trigger_only()
+        # last wrote to the previous one - so its dedup cache can't carry
+        # over, or the first post-reconnect state (LEDs/triggers) would get
+        # wrongly skipped as "unchanged".
+        self._last_forward_report = None
         if self.real_fd is not None:
             try:
                 os.close(self.real_fd)
@@ -771,7 +779,22 @@ class BtHidProxySession:
             apply_led_visualizer(report, led)
         body = bytes(report[:-4])
         report[-4:] = sony_crc32(OUTPUT_CRC_SEED, body).to_bytes(4, "little")
-        os.write(self.real_fd, bytes(report))
+        data = bytes(report)
+        # This report is a pure state write (no timeout/replay window, unlike
+        # the evdev FF path) driven at the caller's full audio-tick rate
+        # purely to keep triggers/LEDs alive alongside SAxense's own separate
+        # report - confirmed on real hardware that with the LED visualizer
+        # off (or between LED updates too small to change the rounded RGB/bar
+        # output - see led_rgb_and_bar()) this is the exact same bytes over
+        # and over, doubling the Bluetooth report rate for no reason right
+        # on top of SAxense's own stream. Skipping the write when nothing
+        # actually changed is lossless - the hardware would end up in the
+        # identical state either way - and is reset on every detach() so a
+        # reconnect's first write is never wrongly skipped.
+        if data == self._last_forward_report:
+            return
+        self._last_forward_report = data
+        os.write(self.real_fd, data)
 
     def _teardown_fds(self):
         if self.uhid_fd is not None:
