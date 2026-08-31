@@ -1334,6 +1334,7 @@ class HapticsEngine(threading.Thread):
         led_bass_env = led_treble_env = led_mid_env = 0.0
         led_bass_smooth = led_mid_smooth = led_treble_smooth = 0.0
         led_update_hz = 1000.0 / chunk_ms
+        led_last_write = 0.0
 
         try:
             while not self._stop_event.is_set() and self.config.get("bt_hid_proxy", {}).get("enabled", False):
@@ -1458,7 +1459,23 @@ class HapticsEngine(threading.Thread):
                             led_mid_smooth, led_mid_out = _led_smooth(led_mid_mag, led_mid_smooth, att, rel, gam)
                             led_treble_smooth, led_treble_out = _led_smooth(led_treble_mag, led_treble_smooth, att, rel, gam)
                             led = (led_bass_out, led_mid_out, led_treble_out, led_cfg.get("bass_priority", 0.6))
-                        session.forward_trigger_only(led)
+                            # forward_trigger_only()'s own dedup only helps
+                            # once a color stops changing (silence, held
+                            # notes) - while music is actively playing the
+                            # LED output changes on nearly every tick, so it
+                            # doesn't reduce the extra Bluetooth traffic this
+                            # report rides on top of SAxense's own stream
+                            # when it matters most. Same time throttle as
+                            # write_led_sysfs() (see LED_WRITE_INTERVAL_S) -
+                            # already confirmed imperceptible there since
+                            # _led_smooth()'s own envelope is what produces
+                            # the visible motion, not the raw write rate.
+                            now = time.monotonic()
+                            if now - led_last_write > LED_WRITE_INTERVAL_S:
+                                led_last_write = now
+                                session.forward_trigger_only(led)
+                        else:
+                            session.forward_trigger_only(led)
                         self._emit_levels(peak_left, peak_right)
 
                 if session.real_fd in readable:
