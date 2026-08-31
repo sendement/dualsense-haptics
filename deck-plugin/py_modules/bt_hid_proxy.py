@@ -18,9 +18,11 @@ import fcntl
 import glob
 import json
 import os
+import queue
 import select
 import struct
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -127,6 +129,43 @@ def hidiocgfeature(fd, report_id, bufsize=256):
     req = HIDIOCGFEATURE_HDR | (bufsize << 16)
     n = fcntl.ioctl(fd, req, buf, True)
     return bytes(buf[:n])
+
+
+# HIDIOCGFEATURE against a real Bluetooth device is a genuine over-the-air
+# round trip (Steam issues these periodically, e.g. for calibration/battery
+# data) - under a congested BT channel it can stall well beyond what's
+# reasonable, and since relay_output_or_get_report() runs in the same loop
+# that drains the clone's own separate /dev/uhid queue, a single slow one
+# blocks that draining too, overflowing the queue ("Output queue is full")
+# purely from our own stall rather than the write volume itself. Confirmed
+# on real hardware under a busy channel.
+GET_FEATURE_TIMEOUT_S = 0.3
+
+
+def hidiocgfeature_bounded(fd, report_id, bufsize=256, timeout=GET_FEATURE_TIMEOUT_S):
+    """Same as hidiocgfeature(), but runs the ioctl on a background thread
+    and gives up after `timeout` - returns None rather than blocking the
+    caller indefinitely. The background thread is left to finish the ioctl
+    on its own either way (an OSError there, e.g. from the fd closing
+    mid-call during a session teardown race, is simply swallowed); a result
+    that arrives after the timeout has already been given up on is just
+    discarded rather than replied with twice."""
+    result = queue.Queue(maxsize=1)
+
+    def worker():
+        try:
+            result.put(hidiocgfeature(fd, report_id, bufsize))
+        except Exception:
+            # Anything at all here (OSError from the real device, ValueError
+            # from a stale/closed fd during a teardown race, ...) just means
+            # no data - the caller already treats a timeout the same way.
+            pass
+
+    threading.Thread(target=worker, daemon=True).start()
+    try:
+        return result.get(timeout=timeout)
+    except queue.Empty:
+        return None
 
 
 def build_create2():
@@ -687,7 +726,10 @@ class BtHidProxySession:
         """One read of uhid_fd: caches a Steam OUTPUT write (report 0x31) for
         the next write_rumble() merge, passes through anything else
         untouched, and answers GET_REPORT by relaying from the real device
-        (patching feature report 9's MAC first). Also called while detached
+        (patching feature report 9's MAC first) - bounded by
+        hidiocgfeature_bounded()'s own timeout, so a slow real device under a
+        congested channel can't stall this call itself and starve the drain
+        loop that's supposed to be reading this same queue. Also called while detached
         (self.real_fd is None) - see HapticsEngine._service_bt_proxy_idle():
         the clone persists across a real-device disconnect, so something
         still has to drain uhid_fd during the gap or its bounded event queue
@@ -710,13 +752,15 @@ class BtHidProxySession:
                     pass
         elif etype == UHID_GET_REPORT:
             req_id, rnum, rtype = struct.unpack_from("<IBB", data, 4)
-            try:
-                fdata = hidiocgfeature(self.real_fd, rnum) if rtype == 0 and self.real_fd is not None else b""
-                err = 0 if self.real_fd is not None else 1
-                if rnum == 9:
-                    fdata = patch_report9_mac(fdata)
-            except OSError:
-                fdata, err = b"", 1
+            fdata, err = b"", 1
+            if rtype == 0 and self.real_fd is not None:
+                fdata = hidiocgfeature_bounded(self.real_fd, rnum)
+                if fdata is None:
+                    fdata = b""
+                else:
+                    err = 0
+                    if rnum == 9:
+                        fdata = patch_report9_mac(fdata)
             reply = struct.pack("<I", UHID_GET_REPORT_REPLY) + \
                 struct.pack("<IHH", req_id, err, len(fdata)) + _pad(fdata, 4096)
             os.write(self.uhid_fd, reply)
