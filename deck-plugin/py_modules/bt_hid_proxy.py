@@ -14,6 +14,7 @@ plugin - see HapticsEngine._session_bt_proxy for the DSP/session loop that
 drives it).
 """
 import binascii
+import collections
 import fcntl
 import glob
 import json
@@ -141,14 +142,22 @@ def hidiocgfeature(fd, report_id, bufsize=256):
 # on real hardware under a busy channel.
 GET_FEATURE_TIMEOUT_S = 0.3
 
-# Bound for BtHidProxySession._write_real_async()'s backing queue - see
-# there for why writes to the real device go through a background thread at
-# all. Once 8 ticks' worth (at the ~50Hz session tick rate) of writes are
-# already queued and unsent, the link is genuinely not keeping up - the
-# caller drops the newest report rather than growing the backlog further,
-# capping how far behind real time the queue (and thus the felt vibration
-# lag) can ever get.
-REAL_WRITE_QUEUE_SIZE = 8
+# BtHidProxySession._write_real_async()'s backing buffer depth and staleness
+# bound - see there for the full rationale. Depth 3 is enough to absorb a
+# single stuck/slow tick's worth of jitter without an audible gap; beyond
+# that, the oldest queued write is dropped in favor of the newest one rather
+# than growing further (collections.deque(maxlen=...) does this for free).
+# REAL_WRITE_STALE_AGE_S additionally drops anything that's been waiting
+# longer than this regardless of depth - once a report is this old the audio
+# it corresponded to has already moved on, so sending it late would be
+# rebroadcasting a moment that's no longer current rather than genuinely
+# catching up. This is what keeps a *sustained* stall from re-creating the
+# earlier bug (a queue that stays permanently backed up, adding a constant
+# multi-write delay to everything passing through) - each write is judged on
+# its own age instead of waiting for its turn behind however many older,
+# possibly already-stale ones came before it.
+REAL_WRITE_QUEUE_DEPTH = 3
+REAL_WRITE_STALE_AGE_S = 0.2
 
 
 def hidiocgfeature_bounded(fd, report_id, bufsize=256, timeout=GET_FEATURE_TIMEOUT_S):
@@ -535,8 +544,10 @@ class BtHidProxySession:
         self._last_forward_report = None
         # Same idea, for write_rumble() - see there for why.
         self._last_rumble_report = None
-        # Backing queue/thread for _write_real_async() - see there for why.
-        self._real_write_queue = queue.Queue(maxsize=REAL_WRITE_QUEUE_SIZE)
+        # Backing state for _write_real_async() - see there for why.
+        self._real_write_pending = collections.deque(maxlen=REAL_WRITE_QUEUE_DEPTH)
+        self._real_write_lock = threading.Lock()
+        self._real_write_available = threading.Event()
         self._real_writer_thread = None
         self._real_writer_stop = threading.Event()
 
@@ -554,16 +565,25 @@ class BtHidProxySession:
         tick after tick, for as long as the congestion lasted) of SAxense
         vibration/LED lag, not a one-off glitch.
 
-        Non-blocking from the caller's side - it only ever waits on the
-        queue itself, never on the write. Bounded (REAL_WRITE_QUEUE_SIZE) so
-        a *sustained* overload can't turn this into an unbounded backlog of
-        its own; past that point the newest report is dropped instead of
-        queued, since a tick's worth of catch-up would bring its own current
-        data anyway. The fd is captured per-item rather than read from
-        self.real_fd inside the writer thread, so a concurrent detach()
-        (which may close and null out self.real_fd) can't race it into
-        writing to a wrong, since-reused fd number - a stale-fd OSError from
-        the write is simply swallowed, same tolerance already used for
+        Non-blocking from the caller's side - just appends to a small
+        bounded deque (REAL_WRITE_QUEUE_DEPTH; maxlen makes it evict the
+        oldest entry on overflow for free, favoring fresh data over
+        backlog) and wakes the writer. A single-slot "latest wins" version
+        of this (queue depth 1) was tried first and rejected: it fixed the
+        unbounded-growth case but turned every single-tick stutter -
+        otherwise harmless - into an audible dropped-content gap, since
+        anything superseded before the writer got to it was gone rather
+        than just delayed. Depth 3 plus _real_writer_loop()'s own staleness
+        check (REAL_WRITE_STALE_AGE_S) is meant to get both: brief jitter
+        gets to wait its short turn instead of being silently discarded,
+        while a genuinely sustained stall still can't turn into the
+        several-seconds-and-growing lag from before (see
+        REAL_WRITE_STALE_AGE_S's own comment for how). The fd is captured
+        alongside the data rather than read from self.real_fd inside the
+        writer thread, so a concurrent detach() (which may close and null
+        out self.real_fd) can't race it into writing to a wrong,
+        since-reused fd number - a stale-fd OSError from the write is
+        simply swallowed, same tolerance already used for
         hidiocgfeature_bounded()'s own background thread."""
         if self.real_fd is None:
             return
@@ -572,16 +592,28 @@ class BtHidProxySession:
             self._real_writer_thread = threading.Thread(
                 target=self._real_writer_loop, daemon=True)
             self._real_writer_thread.start()
-        try:
-            self._real_write_queue.put_nowait((self.real_fd, data))
-        except queue.Full:
-            pass
+        with self._real_write_lock:
+            self._real_write_pending.append((time.monotonic(), self.real_fd, data))
+        self._real_write_available.set()
 
     def _real_writer_loop(self):
         while not self._real_writer_stop.is_set():
-            try:
-                fd, data = self._real_write_queue.get(timeout=0.2)
-            except queue.Empty:
+            if not self._real_write_available.wait(timeout=0.2):
+                continue
+            with self._real_write_lock:
+                item = self._real_write_pending.popleft() if self._real_write_pending else None
+                if not self._real_write_pending:
+                    self._real_write_available.clear()
+            if item is None:
+                continue
+            enqueued_at, fd, data = item
+            if time.monotonic() - enqueued_at > REAL_WRITE_STALE_AGE_S:
+                # Dropped for being stale, not sent late - see
+                # REAL_WRITE_STALE_AGE_S's comment. The loop immediately
+                # re-checks (still set if more items remain) rather than
+                # waiting out the rest of this tick, so a run of stale
+                # entries left over from a stall gets skipped through in one
+                # pass instead of one per wakeup.
                 continue
             try:
                 os.write(fd, data)

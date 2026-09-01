@@ -9,6 +9,7 @@ Runs in its own thread; `config` is a plain nested dict that the GUI can
 mutate directly for live tuning (each analysis chunk re-reads it, so no
 locking is needed - worst case one 20ms frame uses a slightly stale value).
 """
+import fcntl
 import glob
 import math
 import os
@@ -20,6 +21,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import termios
 import threading
 import time
 
@@ -510,6 +512,37 @@ def find_dualsense_hidraw():
     return None
 
 
+def _drain_stale_audio(stdout, chunk_bytes):
+    """If more than one chunk's worth of audio is already sitting in
+    parec's stdout pipe, read and discard the extra so the caller's own
+    following read() returns the most recent chunk instead of the oldest
+    still-buffered one. A stall anywhere else in a session's tick loop (a
+    slow write, a scheduling hiccup, the real device briefly dropping...)
+    doesn't pause parec - it keeps writing into this pipe the whole time,
+    and the kernel's pipe buffer (64KB by default) doesn't drop anything on
+    its own once full. Without this, a session's plain sequential reads
+    just keep replaying that backlog forever once behind, one real-time
+    chunk per tick, with nothing to ever catch back up: confirmed on real
+    hardware as a rock-steady several-second SAxense vibration/LED lag that
+    persisted long after whatever caused the original stall had cleared,
+    matching almost exactly how many seconds of audio a full 64KB pipe
+    holds at BT_RATE's byte rate (this is the audio-input-side counterpart
+    to bt_hid_proxy.BtHidProxySession._write_real_async()'s staleness
+    handling on the output side - a stall on either side of this session
+    can bloat a buffer that nothing else is watching).
+
+    FIONREAD reports what's already buffered without consuming it, so this
+    never touches bytes that haven't been written yet - it can't race a
+    concurrent parec into blocking on a full pipe."""
+    try:
+        available = struct.unpack("I", fcntl.ioctl(stdout, termios.FIONREAD, b"\0\0\0\0"))[0]
+    except OSError:
+        return
+    extra = (available // chunk_bytes - 1) * chunk_bytes
+    if extra > 0:
+        os.read(stdout.fileno(), extra)
+
+
 def peak(samples):
     if not samples:
         return 0.0
@@ -828,6 +861,7 @@ class HapticsEngine(threading.Thread):
 
         try:
             while not self._stop_event.is_set():
+                _drain_stale_audio(parec.stdout, stereo_bytes)
                 data = parec.stdout.read(stereo_bytes)
                 if len(data) < stereo_bytes:
                     if parec.poll() is not None:
@@ -975,6 +1009,7 @@ class HapticsEngine(threading.Thread):
 
         try:
             while not self._stop_event.is_set() and not self._bt_proxy_should_retry("bluetooth"):
+                _drain_stale_audio(parec.stdout, stereo_bytes)
                 data = parec.stdout.read(stereo_bytes)
                 if len(data) < stereo_bytes:
                     if parec.poll() is not None:
@@ -1200,6 +1235,7 @@ class HapticsEngine(threading.Thread):
                     [session.real_fd, session.uhid_fd, proc.stdout], [], [], 0.02)
 
                 if proc.stdout in readable:
+                    _drain_stale_audio(proc.stdout, CHUNK_BYTES)
                     data = proc.stdout.read(CHUNK_BYTES)
                     if len(data) < CHUNK_BYTES:
                         if proc.poll() is not None:
@@ -1372,6 +1408,7 @@ class HapticsEngine(threading.Thread):
                     [session.real_fd, session.uhid_fd, parec.stdout], [], [], 0.02)
 
                 if parec.stdout in readable:
+                    _drain_stale_audio(parec.stdout, stereo_bytes)
                     data = parec.stdout.read(stereo_bytes)
                     if len(data) < stereo_bytes:
                         if parec.poll() is not None:
@@ -1601,6 +1638,7 @@ class HapticsEngine(threading.Thread):
 
         try:
             while not self._stop_event.is_set() and not self._bt_proxy_should_retry(kind):
+                _drain_stale_audio(proc.stdout, CHUNK_BYTES)
                 data = proc.stdout.read(CHUNK_BYTES)
                 if len(data) < CHUNK_BYTES:
                     if proc.poll() is not None:
