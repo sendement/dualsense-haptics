@@ -524,6 +524,8 @@ class BtHidProxySession:
         self.last_input_report = None
         # Dedup cache for forward_trigger_only() - see there for why.
         self._last_forward_report = None
+        # Same idea, for write_rumble() - see there for why.
+        self._last_rumble_report = None
 
     def attach(self):
         """Locks out and opens the real device. The very first call also
@@ -656,11 +658,12 @@ class BtHidProxySession:
         attach()) so Steam never sees it disappear. Safe to call even if
         attach() never succeeded."""
         # A reconnect gets a physically fresh real device that's back at its
-        # own power-on defaults, regardless of whatever forward_trigger_only()
-        # last wrote to the previous one - so its dedup cache can't carry
-        # over, or the first post-reconnect state (LEDs/triggers) would get
-        # wrongly skipped as "unchanged".
+        # own power-on defaults, regardless of whatever forward_trigger_only()/
+        # write_rumble() last wrote to the previous one - so neither dedup
+        # cache can carry over, or the first post-reconnect state (LEDs/
+        # triggers/motors) would get wrongly skipped as "unchanged".
         self._last_forward_report = None
+        self._last_rumble_report = None
         if self.real_fd is not None:
             try:
                 os.close(self.real_fd)
@@ -809,7 +812,18 @@ class BtHidProxySession:
         return merged
 
     def write_rumble(self, strong_mag, weak_mag, led=None):
+        """Called at the session's own audio-tick rate (~50Hz) regardless of
+        whether the magnitude actually changed since the last tick - skipped
+        here, same as forward_trigger_only()'s identical dedup, once envelope
+        decay/attack plateaus or silence make consecutive ticks produce a
+        byte-identical report: the motor holds its last commanded magnitude
+        on its own, so re-sending it changes nothing on the hardware side.
+        Reset on every detach() so a reconnect's first write is never wrongly
+        skipped."""
         merged = merge_rumble(self.last_steam_report, strong_mag, weak_mag, led)
+        if merged == self._last_rumble_report:
+            return
+        self._last_rumble_report = merged
         os.write(self.real_fd, merged)
 
     def forward_trigger_only(self, led=None):
