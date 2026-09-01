@@ -722,7 +722,7 @@ class BtHidProxySession:
               + _pad(self.last_input_report, 4096))
         os.write(self.uhid_fd, ev)
 
-    def relay_output_or_get_report(self):
+    def relay_output_or_get_report(self, fast=False):
         """One read of uhid_fd: caches a Steam OUTPUT write (report 0x31) for
         the next write_rumble() merge, passes through anything else
         untouched, and answers GET_REPORT by relaying from the real device
@@ -736,7 +736,22 @@ class BtHidProxySession:
         fills up ("Output queue is full" in dmesg) from Steam's own writes
         continuing against a clone it still thinks is present. Anything that
         would otherwise need the real device just gets a harmless no-op/
-        error response instead."""
+        error response instead.
+
+        fast=True skips both of this call's own potentially-slow real-device
+        hardware operations (the pass-through os.write() below, and
+        HIDIOCGFEATURE) - used by the caller's fast-drain fallback when a
+        congested channel is making each of those slow enough that the
+        normal per-tick drain can't keep up with how fast Steam is writing,
+        which otherwise stalls the whole tick loop (including this session's
+        own audio-driven write_rumble()/forward_trigger_only() calls) for as
+        long as the backlog takes to work through one hardware op at a time.
+        Safe to drop: the 0x31 OUTPUT report is a full-state snapshot (see
+        _merge_incoming_output()), so a stale one made irrelevant by a fresher
+        one already queued behind it was never worth forwarding, and a
+        skipped GET_REPORT just gets a harmless "unsupported" reply instead
+        of blocking on a live read - Steam already tolerates that (see the
+        no-real_fd branch above)."""
         data = os.read(self.uhid_fd, 4 + 4096 + 256)
         (etype,) = struct.unpack_from("<I", data, 0)
         if etype == UHID_OUTPUT:
@@ -745,7 +760,7 @@ class BtHidProxySession:
             report = data[4:4 + size]
             if rtype == 1 and len(report) == len(DEFAULT_OUTPUT_REPORT):
                 self.last_steam_report = self._merge_incoming_output(report)
-            elif self.real_fd is not None:
+            elif not fast and self.real_fd is not None:
                 try:
                     os.write(self.real_fd, report)
                 except OSError:
@@ -753,7 +768,7 @@ class BtHidProxySession:
         elif etype == UHID_GET_REPORT:
             req_id, rnum, rtype = struct.unpack_from("<IBB", data, 4)
             fdata, err = b"", 1
-            if rtype == 0 and self.real_fd is not None:
+            if not fast and rtype == 0 and self.real_fd is not None:
                 fdata = hidiocgfeature_bounded(self.real_fd, rnum)
                 if fdata is None:
                     fdata = b""
