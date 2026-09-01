@@ -9,6 +9,7 @@ Runs in its own thread; `config` is a plain nested dict that the GUI can
 mutate directly for live tuning (each analysis chunk re-reads it, so no
 locking is needed - worst case one 20ms frame uses a slightly stale value).
 """
+import collections
 import fcntl
 import glob
 import math
@@ -512,6 +513,70 @@ def find_dualsense_hidraw():
     return None
 
 
+class _AsyncStalePipeWriter:
+    """Non-blocking hand-off for writes into a subprocess's stdin pipe (used
+    for SAxense's), so a downstream stall in that *subprocess* - not
+    anything we control - can't block this session's own tick loop the
+    inline `proc.stdin.write(); proc.stdin.flush()` used to.
+
+    SAxense's own write of the finished HID report to the clone's hidraw is
+    just as exposed to a congested Bluetooth link as our own real-device
+    writes are (see bt_hid_proxy.BtHidProxySession._write_real_async(),
+    the original version of this exact pattern) - and when it's blocked
+    there, SAxense stops draining its stdin, which backs up the OS pipe
+    between us and it, which then blocks *our* write into that pipe once
+    it fills. Confirmed on real hardware as a stable (not growing, but not
+    recovering either) roughly one-second added lag under sustained
+    congestion - one write-into-SAxense's-stdin call taking about that long,
+    repeating tick after tick, once SAxense's own downstream write settles
+    into that rhythm.
+
+    Same small age-bounded ring buffer as _write_real_async(): depth 3
+    absorbs one stuck tick's worth of jitter, and anything older than
+    stale_age_s gets skipped in favor of the newest chunk once the writer
+    thread is free, instead of working through a backlog in arrival order."""
+
+    def __init__(self, write_fn, depth=3, stale_age_s=0.2):
+        self._write_fn = write_fn
+        self._stale_age_s = stale_age_s
+        self._pending = collections.deque(maxlen=depth)
+        self._lock = threading.Lock()
+        self._available = threading.Event()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def write(self, data):
+        with self._lock:
+            self._pending.append((time.monotonic(), data))
+        self._available.set()
+
+    def stop(self):
+        self._stop.set()
+
+    def _loop(self):
+        while not self._stop.is_set():
+            if not self._available.wait(timeout=0.2):
+                continue
+            with self._lock:
+                item = self._pending.popleft() if self._pending else None
+                if not self._pending:
+                    self._available.clear()
+            if item is None:
+                continue
+            enqueued_at, data = item
+            if time.monotonic() - enqueued_at > self._stale_age_s:
+                continue
+            try:
+                self._write_fn(data)
+            except Exception:
+                # Broad on purpose - a stale/closed pipe during teardown can
+                # raise more than just OSError (e.g. ValueError on a fd
+                # already released), same tolerance as
+                # bt_hid_proxy.hidiocgfeature_bounded()'s background thread.
+                pass
+
+
 def _drain_stale_audio(stdout, chunk_bytes):
     """If more than one chunk's worth of audio is already sitting in
     parec's stdout pipe, read and discard the extra so the caller's own
@@ -988,6 +1053,11 @@ class HapticsEngine(threading.Thread):
             ["SAxense"], stdin=subprocess.PIPE, stdout=hidraw_file, stderr=subprocess.DEVNULL,
         )
 
+        def _write_saxense_stdin(data):
+            saxense.stdin.write(data)
+            saxense.stdin.flush()
+        saxense_writer = _AsyncStalePipeWriter(_write_saxense_stdin)
+
         button_strong_env = button_weak_env = 0.0
         held_keys = {}
         hat_x = hat_y = 0
@@ -1121,10 +1191,10 @@ class HapticsEngine(threading.Thread):
                 strong_phase = math.fmod(strong_phase, 2 * math.pi)
                 weak_phase = math.fmod(weak_phase, 2 * math.pi)
 
-                saxense.stdin.write(bytes(out))
-                saxense.stdin.flush()
+                saxense_writer.write(bytes(out))
                 self._emit_levels(peak_left, peak_right)
         finally:
+            saxense_writer.stop()
             try:
                 saxense.stdin.close()
             except Exception:
@@ -1384,6 +1454,11 @@ class HapticsEngine(threading.Thread):
             ["SAxense"], stdin=subprocess.PIPE, stdout=hidraw_file, stderr=subprocess.DEVNULL,
         )
 
+        def _write_saxense_stdin(data):
+            saxense.stdin.write(data)
+            saxense.stdin.flush()
+        saxense_writer = _AsyncStalePipeWriter(_write_saxense_stdin)
+
         button_strong_env = button_weak_env = 0.0
         held_keys = {}
         hat_x = hat_y = 0
@@ -1516,8 +1591,7 @@ class HapticsEngine(threading.Thread):
                         strong_phase = math.fmod(strong_phase, 2 * math.pi)
                         weak_phase = math.fmod(weak_phase, 2 * math.pi)
 
-                        saxense.stdin.write(bytes(out))
-                        saxense.stdin.flush()
+                        saxense_writer.write(bytes(out))
                         led = None
                         if led_on:
                             led_cfg = cfg.get("led_visualizer", {})
@@ -1576,6 +1650,7 @@ class HapticsEngine(threading.Thread):
                     last_status_emit = now
                     self._emit_status("proxied")
         finally:
+            saxense_writer.stop()
             saxense.terminate()
             saxense.wait()
             parec.terminate()
