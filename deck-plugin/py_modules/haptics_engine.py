@@ -373,19 +373,16 @@ LED_WRITE_INTERVAL_S = 0.08
 # to gain by draining more than that in one pass anyway.
 UHID_MAX_DRAIN_PER_TICK = 32
 
-# Fallback for when UHID_MAX_DRAIN_PER_TICK isn't enough - i.e. the source
-# (Steam) is writing faster than one tick's budget of *real* per-report
-# hardware work (os.write() to real_fd, HIDIOCGFEATURE) can keep up with,
-# typically because a congested Bluetooth channel is making each of those
-# slow. Rather than keep paying that per-report cost and stalling the whole
-# tick loop - which delays this same session's own audio-driven
-# write_rumble()/forward_trigger_only() calls and is what actually showed up
-# as "wild dips" in the vibration - drain the rest with
-# relay_output_or_get_report(fast=True), which skips exactly those two slow
-# operations (see its docstring for why that's safe to drop: the OUTPUT
-# report is a full-state snapshot, so a stale one superseded by a fresher one
-# already queued behind it was never worth forwarding). Bounded rather than
-# "while readable" so a sustained flood can't turn this fallback into its own
+# Fallback for when UHID_MAX_DRAIN_PER_TICK isn't enough - i.e. Steam is
+# issuing GET_REPORTs faster than one tick's budget of HIDIOCGFEATURE calls
+# (each already bounded by hidiocgfeature_bounded(), but still not free) can
+# keep up with. Rather than keep paying that per-report cost, drain the rest
+# with relay_output_or_get_report(fast=True), which skips it (see that
+# method's docstring for why only HIDIOCGFEATURE, not the OUTPUT pass-
+# through, is safe to skip this way - the pass-through has its own,
+# different protection against a slow real device: see
+# BtHidProxySession._write_real_async()). Bounded rather than "while
+# readable" so a sustained flood can't turn this fallback into its own
 # unbounded stall - one tick's worth of even the cheap fast path is enough to
 # catch back up to one tick's queue depth.
 UHID_FAST_DRAIN_CAP = 512

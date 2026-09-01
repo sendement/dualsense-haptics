@@ -141,6 +141,15 @@ def hidiocgfeature(fd, report_id, bufsize=256):
 # on real hardware under a busy channel.
 GET_FEATURE_TIMEOUT_S = 0.3
 
+# Bound for BtHidProxySession._write_real_async()'s backing queue - see
+# there for why writes to the real device go through a background thread at
+# all. Once 8 ticks' worth (at the ~50Hz session tick rate) of writes are
+# already queued and unsent, the link is genuinely not keeping up - the
+# caller drops the newest report rather than growing the backlog further,
+# capping how far behind real time the queue (and thus the felt vibration
+# lag) can ever get.
+REAL_WRITE_QUEUE_SIZE = 8
+
 
 def hidiocgfeature_bounded(fd, report_id, bufsize=256, timeout=GET_FEATURE_TIMEOUT_S):
     """Same as hidiocgfeature(), but runs the ioctl on a background thread
@@ -526,6 +535,58 @@ class BtHidProxySession:
         self._last_forward_report = None
         # Same idea, for write_rumble() - see there for why.
         self._last_rumble_report = None
+        # Backing queue/thread for _write_real_async() - see there for why.
+        self._real_write_queue = queue.Queue(maxsize=REAL_WRITE_QUEUE_SIZE)
+        self._real_writer_thread = None
+        self._real_writer_stop = threading.Event()
+
+    def _write_real_async(self, data):
+        """Hands `data` off to a dedicated background thread that does the
+        actual os.write(real_fd, data), instead of writing inline on the
+        caller's own thread. Confirmed on real hardware that under a
+        congested Bluetooth channel this specific write can itself take far
+        longer than a healthy one - and since every one of this class's
+        callers (relay_output_or_get_report()'s pass-through,
+        write_rumble(), forward_trigger_only()) runs inline in the session's
+        own audio-tick loop, a single slow write used to stall that whole
+        loop, including the next iteration's read of the audio capture pipe
+        - which is what actually produced several *seconds* (and growing,
+        tick after tick, for as long as the congestion lasted) of SAxense
+        vibration/LED lag, not a one-off glitch.
+
+        Non-blocking from the caller's side - it only ever waits on the
+        queue itself, never on the write. Bounded (REAL_WRITE_QUEUE_SIZE) so
+        a *sustained* overload can't turn this into an unbounded backlog of
+        its own; past that point the newest report is dropped instead of
+        queued, since a tick's worth of catch-up would bring its own current
+        data anyway. The fd is captured per-item rather than read from
+        self.real_fd inside the writer thread, so a concurrent detach()
+        (which may close and null out self.real_fd) can't race it into
+        writing to a wrong, since-reused fd number - a stale-fd OSError from
+        the write is simply swallowed, same tolerance already used for
+        hidiocgfeature_bounded()'s own background thread."""
+        if self.real_fd is None:
+            return
+        if self._real_writer_thread is None or not self._real_writer_thread.is_alive():
+            self._real_writer_stop.clear()
+            self._real_writer_thread = threading.Thread(
+                target=self._real_writer_loop, daemon=True)
+            self._real_writer_thread.start()
+        try:
+            self._real_write_queue.put_nowait((self.real_fd, data))
+        except queue.Full:
+            pass
+
+    def _real_writer_loop(self):
+        while not self._real_writer_stop.is_set():
+            try:
+                fd, data = self._real_write_queue.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            try:
+                os.write(fd, data)
+            except OSError:
+                pass
 
     def attach(self):
         """Locks out and opens the real device. The very first call also
@@ -684,6 +745,7 @@ class BtHidProxySession:
         real-device disconnect, which should go through detach() instead so
         a later reconnect can attach() to the same, still-alive clone."""
         self.detach()
+        self._real_writer_stop.set()
         if self.uhid_fd is not None:
             try:
                 os.write(self.uhid_fd, struct.pack("<I", UHID_DESTROY))
@@ -741,20 +803,22 @@ class BtHidProxySession:
         would otherwise need the real device just gets a harmless no-op/
         error response instead.
 
-        fast=True skips both of this call's own potentially-slow real-device
-        hardware operations (the pass-through os.write() below, and
-        HIDIOCGFEATURE) - used by the caller's fast-drain fallback when a
-        congested channel is making each of those slow enough that the
-        normal per-tick drain can't keep up with how fast Steam is writing,
-        which otherwise stalls the whole tick loop (including this session's
-        own audio-driven write_rumble()/forward_trigger_only() calls) for as
-        long as the backlog takes to work through one hardware op at a time.
-        Safe to drop: the 0x31 OUTPUT report is a full-state snapshot (see
-        _merge_incoming_output()), so a stale one made irrelevant by a fresher
-        one already queued behind it was never worth forwarding, and a
-        skipped GET_REPORT just gets a harmless "unsupported" reply instead
-        of blocking on a live read - Steam already tolerates that (see the
-        no-real_fd branch above)."""
+        fast=True skips HIDIOCGFEATURE (see hidiocgfeature_bounded() - a real
+        over-the-air round trip) - used by the caller's fast-drain fallback
+        when a congested channel is making it slow enough that the normal
+        per-tick drain can't keep up with how often Steam issues one, which
+        would otherwise stall the whole tick loop one bounded-but-still-
+        slow call at a time. Safe to skip: a skipped GET_REPORT just gets a
+        harmless "unsupported" reply instead of blocking on a live read -
+        Steam already tolerates that (see the no-real_fd branch above). The
+        pass-through OUTPUT write below is NOT similarly skippable under
+        fast=True - unlike the 0x31 case above, it's the one path that
+        carries reports besides Steam's own (SAxense's literal-PCM motor
+        stream, in particular), which are a live data stream rather than a
+        full-state snapshot: dropping one is a real, audible loss, not a
+        redundant stale write. It's still safe from congestion the same way
+        HIDIOCGFEATURE is, just by a different mechanism - see
+        _write_real_async()."""
         data = os.read(self.uhid_fd, 4 + 4096 + 256)
         (etype,) = struct.unpack_from("<I", data, 0)
         if etype == UHID_OUTPUT:
@@ -763,11 +827,8 @@ class BtHidProxySession:
             report = data[4:4 + size]
             if rtype == 1 and len(report) == len(DEFAULT_OUTPUT_REPORT):
                 self.last_steam_report = self._merge_incoming_output(report)
-            elif not fast and self.real_fd is not None:
-                try:
-                    os.write(self.real_fd, report)
-                except OSError:
-                    pass
+            else:
+                self._write_real_async(report)
         elif etype == UHID_GET_REPORT:
             req_id, rnum, rtype = struct.unpack_from("<IBB", data, 4)
             fdata, err = b"", 1
@@ -824,7 +885,7 @@ class BtHidProxySession:
         if merged == self._last_rumble_report:
             return
         self._last_rumble_report = merged
-        os.write(self.real_fd, merged)
+        self._write_real_async(merged)
 
     def forward_trigger_only(self, led=None):
         """Relays ONLY the cached trigger-effect fields (plus, optionally,
@@ -867,7 +928,7 @@ class BtHidProxySession:
         if data == self._last_forward_report:
             return
         self._last_forward_report = data
-        os.write(self.real_fd, data)
+        self._write_real_async(data)
 
     def _teardown_fds(self):
         if self.uhid_fd is not None:
