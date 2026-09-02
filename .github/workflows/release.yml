@@ -1,0 +1,55 @@
+# Builds the Arch package from packaging/PKGBUILD and publishes it, plus
+# the distro-agnostic graphical setup wizard (which installs the desktop
+# app from source on anything that isn't Arch - see README's Installation
+# section), as downloadable files on a GitHub Release. Triggered by pushing
+# a version tag, so a release always corresponds to a real git ref.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build-arch-package:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install build tooling
+        # Full sync+upgrade (not just -Sy) to avoid partial-upgrade
+        # dependency mismatches against a base-devel image that may be
+        # older than the current repos. libcap is a makedepend (PKGBUILD
+        # compiles+setcaps the hidlock helper); runtime depends (pyside6,
+        # python-evdev, dualsensectl...) are NOT needed just to build the
+        # package, only to install it.
+        run: pacman -Syu --noconfirm --needed git libcap
+      - uses: actions/checkout@v4
+      - name: makepkg refuses to run as root - build as an unprivileged user
+        run: |
+          useradd -m builder
+          chown -R builder:builder .
+      - name: Build package
+        run: su builder -c 'cd packaging && makepkg -f --noconfirm'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch-package
+          path: packaging/*.pkg.tar.zst
+
+  release:
+    needs: build-arch-package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: arch-package
+          path: dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*.pkg.tar.zst
+            packaging/dualsense-haptics-bootstrap.desktop
+            packaging/dualsense-haptics-setup.sh
