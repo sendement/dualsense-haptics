@@ -92,8 +92,12 @@ DEFAULT_CONFIG = {
     "button_haptics": {},
     # USB only - see find_dualsense_sink() and HapticsEngine._session_direct_audio.
     # bt_enabled is separate and opt-in (default off) - see BT_RATE above.
+    # parec_restart_on_stall is also opt-in (default off): confirmed on real
+    # hardware to briefly drop controller input each time it fires (see
+    # PAREC_RESTART_STALL_CHUNKS), so it trades that off against recovering
+    # cleanly from a persistent audio stall instead of just riding it out.
     "direct_audio": {"enabled": True, "gain": 5.0, "cutoff_hz": 500, "bt_enabled": False,
-                      "bt_chunk_ms": BT_CHUNK_MS},
+                      "bt_chunk_ms": BT_CHUNK_MS, "parec_restart_on_stall": False},
     # Bluetooth only, opt-in - see bt_hid_proxy.py and HapticsEngine._session_bt_proxy.
     "bt_hid_proxy": {"enabled": False},
     # Requires bt_hid_proxy (exclusive device access to safely fight Steam's
@@ -598,14 +602,55 @@ def _drain_stale_audio(stdout, chunk_bytes):
 
     FIONREAD reports what's already buffered without consuming it, so this
     never touches bytes that haven't been written yet - it can't race a
-    concurrent parec into blocking on a full pipe."""
+    concurrent parec into blocking on a full pipe.
+
+    Returns the number of bytes actually discarded (0 if none, or if
+    FIONREAD itself failed) - callers use this as a direct, non-guessy
+    signal that a real stall just happened upstream, as opposed to routine
+    single-chunk jitter, to decide whether it's worth respawning parec
+    entirely (see PAREC_RESTART_STALL_CHUNKS)."""
     try:
         available = struct.unpack("I", fcntl.ioctl(stdout, termios.FIONREAD, b"\0\0\0\0"))[0]
     except OSError:
-        return
+        return 0
     extra = (available // chunk_bytes - 1) * chunk_bytes
     if extra > 0:
         os.read(stdout.fileno(), extra)
+    return max(extra, 0)
+
+
+def _spawn_stereo_parec(audio_prefix, rate):
+    """Shared by every BT/SAxense session (both use identical parec args) -
+    also reused to respawn parec in place after a large stall (see
+    PAREC_RESTART_STALL_CHUNKS) without duplicating this call."""
+    return subprocess.Popen(
+        audio_prefix + ["parec", "-d", "@DEFAULT_SINK@.monitor", "--format=s16le",
+                         f"--rate={rate}", "--channels=2", "--raw", "--latency-msec=20"],
+        # bufsize=0: an io.BufferedReader on stdout would eagerly pull ahead
+        # into its own userspace buffer on .read(), hiding stale audio there
+        # where _drain_stale_audio()'s FIONREAD check (which only sees the
+        # kernel pipe) can never find it. Unbuffered makes every .read(n) a
+        # direct syscall for exactly n bytes, so FIONREAD stays an accurate
+        # picture of what's actually backed up.
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0,
+    )
+
+
+# A stall big enough to discard this many whole chunks is treated as a real
+# disruption (confirmed audible as a click-then-crackle through SAxense's
+# literal-PCM motor drive) rather than routine single-chunk scheduling
+# jitter, and is worth respawning parec for - a fresh client re-negotiates
+# with PipeWire from scratch, in case the stall left the old one in a
+# degraded state (e.g. an elevated quantum) that _drain_stale_audio() alone
+# can't fix. Only ever replaces the parec subprocess itself: the uhid clone,
+# the real device fd and SAxense all live in `session`/`hidraw_file` above
+# this loop and are never touched, so Steam never sees the controller itself
+# drop - but confirmed on real hardware that the restart still briefly stalls
+# the tick loop enough for controller INPUT to visibly drop for a moment, so
+# this is gated behind direct_audio.parec_restart_on_stall (opt-in, off by
+# default - see DEFAULT_CONFIG and ui.py's checkbox/warning for it).
+PAREC_RESTART_STALL_CHUNKS = 4
+PAREC_RESTART_COOLDOWN_S = 2.0
 
 
 def peak(samples):
@@ -1050,20 +1095,11 @@ class HapticsEngine(threading.Thread):
         # bt_hid_proxy.find_clone_hidraw_path()'s own comment on this race.
         hidraw_file = os.fdopen(os.open(hidraw_path, os.O_WRONLY), "wb", buffering=0)
         audio_prefix = _audio_subprocess_prefix()
-        parec = subprocess.Popen(
-            audio_prefix + ["parec", "-d", "@DEFAULT_SINK@.monitor", "--format=s16le",
-                             f"--rate={rate}", "--channels=2", "--raw", "--latency-msec=20"],
-            # bufsize=0: an io.BufferedReader on stdout would eagerly pull
-            # ahead into its own userspace buffer on .read(), hiding stale
-            # audio there where _drain_stale_audio()'s FIONREAD check (which
-            # only sees the kernel pipe) can never find it. Unbuffered makes
-            # every .read(n) a direct syscall for exactly n bytes, so
-            # FIONREAD stays an accurate picture of what's actually backed up.
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0,
-        )
+        parec = _spawn_stereo_parec(audio_prefix, rate)
         saxense = subprocess.Popen(
             ["SAxense"], stdin=subprocess.PIPE, stdout=hidraw_file, stderr=subprocess.DEVNULL,
         )
+        last_parec_restart = 0.0
 
         def _write_saxense_stdin(data):
             saxense.stdin.write(data)
@@ -1091,7 +1127,15 @@ class HapticsEngine(threading.Thread):
 
         try:
             while not self._stop_event.is_set() and not self._bt_proxy_should_retry("bluetooth"):
-                _drain_stale_audio(parec.stdout, stereo_bytes)
+                dropped = _drain_stale_audio(parec.stdout, stereo_bytes)
+                now = time.monotonic()
+                if (self.config.get("direct_audio", {}).get("parec_restart_on_stall", False)
+                        and dropped >= PAREC_RESTART_STALL_CHUNKS * stereo_bytes
+                        and now - last_parec_restart > PAREC_RESTART_COOLDOWN_S):
+                    parec.terminate()
+                    parec.wait()
+                    parec = _spawn_stereo_parec(audio_prefix, rate)
+                    last_parec_restart = now
                 data = parec.stdout.read(stereo_bytes)
                 if len(data) < stereo_bytes:
                     if parec.poll() is not None:
@@ -1458,20 +1502,11 @@ class HapticsEngine(threading.Thread):
 
         hidraw_file = os.fdopen(os.open(clone_hidraw, os.O_WRONLY), "wb", buffering=0)
         audio_prefix = _audio_subprocess_prefix()
-        parec = subprocess.Popen(
-            audio_prefix + ["parec", "-d", "@DEFAULT_SINK@.monitor", "--format=s16le",
-                             f"--rate={rate}", "--channels=2", "--raw", "--latency-msec=20"],
-            # bufsize=0: an io.BufferedReader on stdout would eagerly pull
-            # ahead into its own userspace buffer on .read(), hiding stale
-            # audio there where _drain_stale_audio()'s FIONREAD check (which
-            # only sees the kernel pipe) can never find it. Unbuffered makes
-            # every .read(n) a direct syscall for exactly n bytes, so
-            # FIONREAD stays an accurate picture of what's actually backed up.
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0,
-        )
+        parec = _spawn_stereo_parec(audio_prefix, rate)
         saxense = subprocess.Popen(
             ["SAxense"], stdin=subprocess.PIPE, stdout=hidraw_file, stderr=subprocess.DEVNULL,
         )
+        last_parec_restart = 0.0
 
         def _write_saxense_stdin(data):
             saxense.stdin.write(data)
@@ -1502,7 +1537,15 @@ class HapticsEngine(threading.Thread):
                     [session.real_fd, session.uhid_fd, parec.stdout], [], [], 0.02)
 
                 if parec.stdout in readable:
-                    _drain_stale_audio(parec.stdout, stereo_bytes)
+                    dropped = _drain_stale_audio(parec.stdout, stereo_bytes)
+                    now = time.monotonic()
+                    if (self.config.get("direct_audio", {}).get("parec_restart_on_stall", False)
+                            and dropped >= PAREC_RESTART_STALL_CHUNKS * stereo_bytes
+                            and now - last_parec_restart > PAREC_RESTART_COOLDOWN_S):
+                        parec.terminate()
+                        parec.wait()
+                        parec = _spawn_stereo_parec(audio_prefix, rate)
+                        last_parec_restart = now
                     data = parec.stdout.read(stereo_bytes)
                     if len(data) < stereo_bytes:
                         if parec.poll() is not None:
