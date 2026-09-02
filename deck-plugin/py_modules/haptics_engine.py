@@ -909,7 +909,13 @@ class HapticsEngine(threading.Thread):
         parec = subprocess.Popen(
             audio_prefix + ["parec", "-d", "@DEFAULT_SINK@.monitor", "--format=s16le",
                              f"--rate={rate}", "--channels=2", "--raw", "--latency-msec=20"],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            # bufsize=0: an io.BufferedReader on stdout would eagerly pull
+            # ahead into its own userspace buffer on .read(), hiding stale
+            # audio there where _drain_stale_audio()'s FIONREAD check (which
+            # only sees the kernel pipe) can never find it. Unbuffered makes
+            # every .read(n) a direct syscall for exactly n bytes, so
+            # FIONREAD stays an accurate picture of what's actually backed up.
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0,
         )
         paplay = subprocess.Popen(
             audio_prefix + ["paplay", "--raw", f"--rate={rate}", "--format=s16le", "--channels=4",
@@ -1047,7 +1053,13 @@ class HapticsEngine(threading.Thread):
         parec = subprocess.Popen(
             audio_prefix + ["parec", "-d", "@DEFAULT_SINK@.monitor", "--format=s16le",
                              f"--rate={rate}", "--channels=2", "--raw", "--latency-msec=20"],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            # bufsize=0: an io.BufferedReader on stdout would eagerly pull
+            # ahead into its own userspace buffer on .read(), hiding stale
+            # audio there where _drain_stale_audio()'s FIONREAD check (which
+            # only sees the kernel pipe) can never find it. Unbuffered makes
+            # every .read(n) a direct syscall for exactly n bytes, so
+            # FIONREAD stays an accurate picture of what's actually backed up.
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0,
         )
         saxense = subprocess.Popen(
             ["SAxense"], stdin=subprocess.PIPE, stdout=hidraw_file, stderr=subprocess.DEVNULL,
@@ -1271,7 +1283,8 @@ class HapticsEngine(threading.Thread):
             _audio_subprocess_prefix() +
             ["parec", "-d", "@DEFAULT_SINK@.monitor", "--format=s16le",
              f"--rate={RATE}", f"--channels={CHANNELS}", "--raw", "--latency-msec=20"],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            # bufsize=0 - see the other parec spawns' identical comment.
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0,
         )
 
         bass_y = treble_y = 0.0
@@ -1448,7 +1461,13 @@ class HapticsEngine(threading.Thread):
         parec = subprocess.Popen(
             audio_prefix + ["parec", "-d", "@DEFAULT_SINK@.monitor", "--format=s16le",
                              f"--rate={rate}", "--channels=2", "--raw", "--latency-msec=20"],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            # bufsize=0: an io.BufferedReader on stdout would eagerly pull
+            # ahead into its own userspace buffer on .read(), hiding stale
+            # audio there where _drain_stale_audio()'s FIONREAD check (which
+            # only sees the kernel pipe) can never find it. Unbuffered makes
+            # every .read(n) a direct syscall for exactly n bytes, so
+            # FIONREAD stays an accurate picture of what's actually backed up.
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0,
         )
         saxense = subprocess.Popen(
             ["SAxense"], stdin=subprocess.PIPE, stdout=hidraw_file, stderr=subprocess.DEVNULL,
@@ -1671,7 +1690,8 @@ class HapticsEngine(threading.Thread):
             _audio_subprocess_prefix() +
             ["parec", "-d", "@DEFAULT_SINK@.monitor", "--format=s16le",
              f"--rate={RATE}", f"--channels={CHANNELS}", "--raw", "--latency-msec=20"],
-            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            # bufsize=0 - see the other parec spawns' identical comment.
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0,
         )
 
         bass_y = treble_y = 0.0
