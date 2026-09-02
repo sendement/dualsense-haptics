@@ -1,0 +1,34 @@
+# Hardware-free checks: the unit tests cover the pure DSP/protocol/config/
+# i18n layers (Linux-only modules are stubbed by tests/conftest.py, so no
+# controller, evdev, or Qt is needed here). Session loops and device
+# discovery still need a real DualSense and are out of CI's reach.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.10 is the README's stated minimum; 3.13 covers current distros
+        python-version: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install test tooling
+        run: python -m pip install pytest ruff
+      - name: Byte-compile everything (syntax check, imports not executed)
+        run: python -m compileall -q .
+      - name: Lint for real errors (pyflakes rules only, no style opinions)
+        # py_modules holds vendored copies - the byte-identity test already
+        # guards them, no point reporting each finding twice
+        run: python -m ruff check --select F --exclude deck-plugin/py_modules .
+      - name: Run unit tests
+        run: python -m pytest -q
