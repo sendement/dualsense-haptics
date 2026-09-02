@@ -31,7 +31,12 @@ jobs:
           useradd -m builder
           chown -R builder:builder .
       - name: Build package
-        run: su builder -c 'cd packaging && makepkg -f --noconfirm'
+        # --nodeps: makepkg also checks runtime `depends` (pyside6,
+        # python-evdev, dualsensectl...) by default, but those are only
+        # needed to *install* the package, not to build it - the build
+        # step itself only touches makedepends (gcc, libcap), already
+        # installed above.
+        run: su builder -c 'cd packaging && makepkg -f --noconfirm --nodeps'
       - uses: actions/upload-artifact@v4
         with:
           name: arch-package
