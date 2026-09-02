@@ -21,7 +21,6 @@ import select
 import shutil
 import struct
 import subprocess
-import sys
 import termios
 import threading
 import time
