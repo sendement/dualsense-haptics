@@ -516,6 +516,30 @@ def find_dualsense_hidraw():
     return None
 
 
+def _write_with_timeout(fd, data, timeout_s):
+    """os.write() with an overall deadline instead of blocking until the
+    peer drains all of `data`. Used by _AsyncStalePipeWriter so a downstream
+    stall (SAxense's own write blocked behind a congested Bluetooth link, or
+    simply not being scheduled during a system-wide freeze - confirmed on
+    real hardware to produce exactly this) can't leave its one writer
+    thread stuck inside a single write() call for as long as that stall
+    lasts - see the class docstring for what that used to cost. Returns
+    True once all of `data` made it out; False if the deadline passed
+    first, in which case the caller drops the rest exactly like a stale
+    item rather than resuming this same write mid-frame."""
+    deadline = time.monotonic() + timeout_s
+    view = memoryview(data)
+    while view:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        _, writable, _ = select.select([], [fd], [], remaining)
+        if not writable:
+            return False
+        view = view[os.write(fd, view):]
+    return True
+
+
 class _AsyncStalePipeWriter:
     """Non-blocking hand-off for writes into a subprocess's stdin pipe (used
     for SAxense's), so a downstream stall in that *subprocess* - not
@@ -528,20 +552,26 @@ class _AsyncStalePipeWriter:
     the original version of this exact pattern) - and when it's blocked
     there, SAxense stops draining its stdin, which backs up the OS pipe
     between us and it, which then blocks *our* write into that pipe once
-    it fills. Confirmed on real hardware as a stable (not growing, but not
-    recovering either) roughly one-second added lag under sustained
-    congestion - one write-into-SAxense's-stdin call taking about that long,
-    repeating tick after tick, once SAxense's own downstream write settles
-    into that rhythm.
+    it fills. Used to be a stable (not growing, but not recovering either)
+    roughly one-second added lag under sustained congestion, confirmed on
+    real hardware: one write-into-SAxense's-stdin call taking about that
+    long, repeating tick after tick, once SAxense's own downstream write
+    settled into that rhythm - the staleness check below only ever helped
+    items still sitting *in* the queue, not the one already in flight.
+    _write_with_timeout() bounds that single call too, so a stuck write now
+    gets abandoned (in favor of the newest pending chunk once the writer
+    thread is free) instead of holding up the lag's own recovery.
 
     Same small age-bounded ring buffer as _write_real_async(): depth 3
     absorbs one stuck tick's worth of jitter, and anything older than
     stale_age_s gets skipped in favor of the newest chunk once the writer
     thread is free, instead of working through a backlog in arrival order."""
 
-    def __init__(self, write_fn, depth=3, stale_age_s=0.2):
-        self._write_fn = write_fn
+    def __init__(self, fd, depth=3, stale_age_s=0.2, write_timeout_s=0.05, label="saxense_writer"):
+        self._fd = fd
         self._stale_age_s = stale_age_s
+        self._write_timeout_s = write_timeout_s
+        self._label = label
         self._pending = collections.deque(maxlen=depth)
         self._lock = threading.Lock()
         self._available = threading.Event()
@@ -571,7 +601,17 @@ class _AsyncStalePipeWriter:
             if time.monotonic() - enqueued_at > self._stale_age_s:
                 continue
             try:
-                self._write_fn(data)
+                # Diagnostic only - confirms whether a stuck write is what
+                # actually rescued a given stall (see _write_with_timeout's
+                # docstring) rather than the stall just being mild enough to
+                # never get this far.
+                if not _write_with_timeout(self._fd, data, self._write_timeout_s):
+                    print(
+                        f"[{self._label}] write timed out after "
+                        f"{self._write_timeout_s * 1000:.0f}ms - dropped, "
+                        f"next tick resumes from the newest pending chunk",
+                        flush=True,
+                    )
             except Exception:
                 # Broad on purpose - a stale/closed pipe during teardown can
                 # raise more than just OSError (e.g. ValueError on a fd
@@ -650,6 +690,22 @@ def _spawn_stereo_parec(audio_prefix, rate):
 # default - see DEFAULT_CONFIG and ui.py's checkbox/warning for it).
 PAREC_RESTART_STALL_CHUNKS = 4
 PAREC_RESTART_COOLDOWN_S = 2.0
+
+# Diagnostic only (see _run_bt_proxy_saxense): the select+audio+relay work in
+# that loop's body all runs serially per tick, so a slow audio phase (a real
+# stall, a GC pause, anything) pushes back session.relay_input()/
+# relay_output_or_get_report() in the very same tick - which would look and
+# feel exactly like a control drop even with parec_restart_on_stall off.
+# Logged (not enforced) above this threshold to find out which phase is
+# actually eating the time next time this happens on real hardware.
+TICK_LOG_THRESHOLD_S = 0.015
+
+# Diagnostic only (see _run_bt_proxy_saxense): select()'s own timeout there
+# is 0.02s, so it returning much later than that means this thread sat
+# off-CPU for the difference - real scheduling starvation, not slow work in
+# this loop - which TICK_LOG_THRESHOLD_S alone can't see (it only measures
+# time spent doing work, not time spent waiting to be scheduled at all).
+SELECT_STARVATION_THRESHOLD_S = 0.04
 
 
 def peak(samples):
@@ -1099,11 +1155,7 @@ class HapticsEngine(threading.Thread):
             ["SAxense"], stdin=subprocess.PIPE, stdout=hidraw_file, stderr=subprocess.DEVNULL,
         )
         last_parec_restart = 0.0
-
-        def _write_saxense_stdin(data):
-            saxense.stdin.write(data)
-            saxense.stdin.flush()
-        saxense_writer = _AsyncStalePipeWriter(_write_saxense_stdin)
+        saxense_writer = _AsyncStalePipeWriter(saxense.stdin.fileno(), label="bt_direct_audio")
 
         button_strong_env = button_weak_env = 0.0
         held_keys = {}
@@ -1506,11 +1558,7 @@ class HapticsEngine(threading.Thread):
             ["SAxense"], stdin=subprocess.PIPE, stdout=hidraw_file, stderr=subprocess.DEVNULL,
         )
         last_parec_restart = 0.0
-
-        def _write_saxense_stdin(data):
-            saxense.stdin.write(data)
-            saxense.stdin.flush()
-        saxense_writer = _AsyncStalePipeWriter(_write_saxense_stdin)
+        saxense_writer = _AsyncStalePipeWriter(saxense.stdin.fileno(), label="bt_proxy_saxense")
 
         button_strong_env = button_weak_env = 0.0
         held_keys = {}
@@ -1532,8 +1580,11 @@ class HapticsEngine(threading.Thread):
 
         try:
             while not self._stop_event.is_set() and self.config.get("bt_hid_proxy", {}).get("enabled", False):
+                tick_start = time.monotonic()
                 readable, _, _ = select.select(
                     [session.real_fd, session.uhid_fd, parec.stdout], [], [], 0.02)
+                t_select = time.monotonic()
+                audio_dur = relay_dur = uhid_dur = 0.0
 
                 if parec.stdout in readable:
                     dropped = _drain_stale_audio(parec.stdout, stereo_bytes)
@@ -1679,9 +1730,13 @@ class HapticsEngine(threading.Thread):
                         else:
                             session.forward_trigger_only(led)
                         self._emit_levels(peak_left, peak_right)
+                t_after_audio = time.monotonic()
+                audio_dur = t_after_audio - t_select
 
                 if session.real_fd in readable:
                     session.relay_input()
+                t_after_relay = time.monotonic()
+                relay_dur = t_after_relay - t_after_audio
                 if session.uhid_fd in readable:
                     # Drain what's queued (bounded - see
                     # UHID_MAX_DRAIN_PER_TICK) rather than just this one
@@ -1705,6 +1760,41 @@ class HapticsEngine(threading.Thread):
                             more, _, _ = select.select([session.uhid_fd], [], [], 0)
                             if not more:
                                 break
+                uhid_dur = time.monotonic() - t_after_relay
+
+                # Diagnostic only - see TICK_LOG_THRESHOLD_S. select()'s own
+                # wait time is excluded - it blocks up to 20ms every tick
+                # that has nothing to do, which is normal idle behavior, not
+                # a stall. What matters is the actual work once something IS
+                # ready: audio (parec read/DSP/SAxense write) runs before
+                # relay_input()/the uhid drain in this same tick, so a slow
+                # audio phase pushes those back too - which would feel
+                # exactly like a control drop even with parec_restart_on_stall
+                # off.
+                work_dur = audio_dur + relay_dur + uhid_dur
+                select_wait = t_select - tick_start
+                if work_dur > TICK_LOG_THRESHOLD_S:
+                    print(
+                        f"[bt_proxy_saxense] slow tick, work={work_dur * 1000:.1f}ms "
+                        f"(select_wait={select_wait * 1000:.1f}ms "
+                        f"audio={audio_dur * 1000:.1f}ms "
+                        f"relay={relay_dur * 1000:.1f}ms "
+                        f"uhid={uhid_dur * 1000:.1f}ms)",
+                        flush=True,
+                    )
+                # select()'s own timeout is 0.02s, so it should never return
+                # much later than that - if it does, this thread sat off-CPU
+                # for the difference (OS scheduling starvation, GIL held
+                # elsewhere, the whole process swapped out...), which would
+                # delay relay_input()/the uhid drain just as much as a slow
+                # work phase does, but isn't visible in work_dur at all.
+                elif select_wait > SELECT_STARVATION_THRESHOLD_S:
+                    print(
+                        f"[bt_proxy_saxense] select() starved for "
+                        f"{select_wait * 1000:.1f}ms (timeout was 20ms) - "
+                        f"thread was off-CPU, not doing slow work",
+                        flush=True,
+                    )
 
                 now = time.monotonic()
                 if now - last_status_emit > 1.5:
