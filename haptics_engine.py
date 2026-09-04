@@ -91,12 +91,17 @@ DEFAULT_CONFIG = {
     "button_haptics": {},
     # USB only - see find_dualsense_sink() and HapticsEngine._session_direct_audio.
     # bt_enabled is separate and opt-in (default off) - see BT_RATE above.
-    # parec_restart_on_stall is also opt-in (default off): confirmed on real
-    # hardware to briefly drop controller input each time it fires (see
-    # PAREC_RESTART_STALL_CHUNKS), so it trades that off against recovering
-    # cleanly from a persistent audio stall instead of just riding it out.
+    # saxense_restart_on_stall (BT/SaXense sessions only) is also opt-in
+    # (default off): confirmed on real hardware to briefly drop controller
+    # input each time it fires (see PAREC_RESTART_STALL_CHUNKS), so it trades
+    # that off against recovering cleanly from a stall big enough to leave
+    # SaXense's own downstream Bluetooth write settled into a stable,
+    # elevated added-lag rhythm that never recovers on its own - fully
+    # tearing down and recreating the SaXense session clears it, same as
+    # toggling bt_enabled off then on by hand (confirmed on real hardware to
+    # recover cleanly with no further input drop beyond the warned-about one).
     "direct_audio": {"enabled": True, "gain": 5.0, "cutoff_hz": 500, "bt_enabled": False,
-                      "bt_chunk_ms": BT_CHUNK_MS, "parec_restart_on_stall": False},
+                      "bt_chunk_ms": BT_CHUNK_MS, "saxense_restart_on_stall": False},
     # Bluetooth only, opt-in - see bt_hid_proxy.py and HapticsEngine._session_bt_proxy.
     "bt_hid_proxy": {"enabled": False},
     # Requires bt_hid_proxy (exclusive device access to safely fight Steam's
@@ -506,13 +511,30 @@ def find_dualsense_sink():
 def find_dualsense_hidraw():
     """/dev/hidrawN for a Bluetooth-connected DualSense/Edge, resolved from
     the kernel's uhid sysfs tree (hid-playstation creates one such node per
-    bonded/connected BT device). Only meaningful together with the SAxense
-    binary - see _session_bt_direct_audio."""
+    bonded/connected BT device - and so does bt_hid_proxy's own clone,
+    BlueZ's HID profile having used /dev/uhid to inject connected Bluetooth
+    HID devices for years; the clone advertises the same vendor/product ID
+    on purpose, so it matches this same glob once one has ever existed this
+    boot). Each match's uevent is checked and skipped if it's the clone
+    (tagged HID_PHYS=bt_hid_proxy.CLONE_PHYS) - confirmed on real hardware
+    that returning the clone's node here instead of the real device's
+    accepts writes with no error while doing nothing, since the clone has
+    no controller behind it, mimicking a hung SAxense from the outside.
+    Only meaningful together with the SAxense binary - see
+    _session_bt_direct_audio."""
     for pid in DUALSENSE_PRODUCT_IDS:
-        pattern = f"/sys/devices/virtual/misc/uhid/0005:{SONY_VENDOR_ID:04X}:{pid:04X}.*/hidraw/hidraw*"
-        matches = glob.glob(pattern)
-        if matches:
-            return f"/dev/{matches[0].rsplit('/', 1)[-1]}"
+        pattern = f"/sys/devices/virtual/misc/uhid/0005:{SONY_VENDOR_ID:04X}:{pid:04X}.*"
+        for sys_path in glob.glob(pattern):
+            try:
+                with open(os.path.join(sys_path, "uevent")) as f:
+                    uevent = f.read()
+            except OSError:
+                continue
+            if bt_hid_proxy.CLONE_PHYS in uevent:
+                continue
+            matches = glob.glob(os.path.join(sys_path, "hidraw", "hidraw*"))
+            if matches:
+                return f"/dev/{os.path.basename(matches[0])}"
     return None
 
 
@@ -678,24 +700,21 @@ def _spawn_stereo_parec(audio_prefix, rate):
 # A stall big enough to discard this many whole chunks is treated as a real
 # disruption (confirmed audible as a click-then-crackle through SAxense's
 # literal-PCM motor drive) rather than routine single-chunk scheduling
-# jitter, and is worth respawning parec for - a fresh client re-negotiates
-# with PipeWire from scratch, in case the stall left the old one in a
-# degraded state (e.g. an elevated quantum) that _drain_stale_audio() alone
-# can't fix. Only ever replaces the parec subprocess itself: the uhid clone,
-# the real device fd and SAxense all live in `session`/`hidraw_file` above
-# this loop and are never touched, so Steam never sees the controller itself
-# drop - but confirmed on real hardware that the restart still briefly stalls
-# the tick loop enough for controller INPUT to visibly drop for a moment, so
-# this is gated behind direct_audio.parec_restart_on_stall (opt-in, off by
-# default - see DEFAULT_CONFIG and ui.py's checkbox/warning for it).
+# jitter, and is worth a full SaXense session restart for - see
+# _should_restart_saxense_for_stall/direct_audio.saxense_restart_on_stall.
 PAREC_RESTART_STALL_CHUNKS = 4
-PAREC_RESTART_COOLDOWN_S = 2.0
+
+# Cooldown between SaXense session restarts (see
+# _should_restart_saxense_for_stall) - long enough that a fresh SAxense
+# process has time to start up and resync before another stall (or the tail
+# end of the same one) could trigger a second restart right on top of it.
+SAXENSE_RESTART_COOLDOWN_S = 3.0
 
 # Diagnostic only (see _run_bt_proxy_saxense): the select+audio+relay work in
 # that loop's body all runs serially per tick, so a slow audio phase (a real
 # stall, a GC pause, anything) pushes back session.relay_input()/
 # relay_output_or_get_report() in the very same tick - which would look and
-# feel exactly like a control drop even with parec_restart_on_stall off.
+# feel exactly like a control drop even with saxense_restart_on_stall off.
 # Logged (not enforced) above this threshold to find out which phase is
 # actually eating the time next time this happens on real hardware.
 TICK_LOG_THRESHOLD_S = 0.015
@@ -975,19 +994,41 @@ class HapticsEngine(threading.Thread):
         by _session_bt_proxy when the proxy itself can't be set up, so a
         failed proxy attempt degrades through the user's other preferences
         (e.g. BT direct-audio/SAxense) instead of jumping straight to plain
-        FF_RUMBLE and silently ignoring them."""
-        direct_cfg = self.config.get("direct_audio", {})
-        if kind == "usb" and direct_cfg.get("enabled", True):
-            sink = find_dualsense_sink()
-            if sink:
-                self._session_direct_audio(dev, sink)
-                return
-        elif kind == "bluetooth" and direct_cfg.get("enabled", True) and direct_cfg.get("bt_enabled", False):
-            hidraw = find_dualsense_hidraw()
-            if hidraw and shutil.which("SAxense"):
-                self._session_bt_direct_audio(dev, hidraw)
-                return
-        self._session_ff(dev)
+        FF_RUMBLE and silently ignoring them.
+
+        Loops internally, re-deriving the choice each pass, instead of
+        picking once and returning - each sub-session's own while-condition
+        (_should_switch_from_ff / _bt_should_use_saxense) exits promptly
+        once live config no longer matches what it's running, so toggling
+        Direct Audio or SAxense-over-BT switches immediately instead of only
+        on the next full reconnect. Mirrors _session_bt_proxy's identical
+        restructuring for the same reason."""
+        while not self._stop_event.is_set() and not self._bt_proxy_should_retry(kind):
+            direct_cfg = self.config.get("direct_audio", {})
+            if kind == "usb" and direct_cfg.get("enabled", True):
+                sink = find_dualsense_sink()
+                if sink:
+                    self._session_direct_audio(dev, sink)
+                    continue
+            elif kind == "bluetooth" and self._bt_should_use_saxense():
+                hidraw = find_dualsense_hidraw()
+                if hidraw:
+                    self._session_bt_direct_audio(dev, hidraw)
+                    continue
+                print("[session_fallback] SAxense wanted but find_dualsense_hidraw() found nothing - "
+                      "falling back to FF_RUMBLE", flush=True)
+            self._session_ff(dev)
+
+    def _should_switch_from_ff(self, kind):
+        """True once live config wants a direct-audio session instead of the
+        synthesized-envelope one _session_ff is currently running - checked
+        once per tick from within that loop so toggling Direct Audio (USB or
+        BT/SAxense) takes effect live. See _session_fallback."""
+        if kind == "usb":
+            return self.config.get("direct_audio", {}).get("enabled", True)
+        if kind == "bluetooth":
+            return self._bt_should_use_saxense()
+        return False
 
     def _session_direct_audio(self, dev, sink):
         """USB only: streams live system audio as literal PCM straight onto
@@ -1031,7 +1072,7 @@ class HapticsEngine(threading.Thread):
         strong_phase = weak_phase = 0.0
 
         try:
-            while not self._stop_event.is_set():
+            while not self._stop_event.is_set() and self.config.get("direct_audio", {}).get("enabled", True):
                 _drain_stale_audio(parec.stdout, stereo_bytes)
                 data = parec.stdout.read(stereo_bytes)
                 if len(data) < stereo_bytes:
@@ -1133,6 +1174,7 @@ class HapticsEngine(threading.Thread):
         despite the much lower bitrate (8-bit, combined 3kHz). SAxense paces
         and formats the actual HID reports itself; this just feeds it gain-
         staged PCM and points its output straight at the hidraw device."""
+        print(f"[bt_direct_audio] entering, hidraw={hidraw_path}", flush=True)
         rate = BT_RATE
         # Fixed for this session's lifetime (reread on the next reconnect,
         # like `rate` above) - the read buffer sizes/formats below are
@@ -1154,7 +1196,6 @@ class HapticsEngine(threading.Thread):
         saxense = subprocess.Popen(
             ["SAxense"], stdin=subprocess.PIPE, stdout=hidraw_file, stderr=subprocess.DEVNULL,
         )
-        last_parec_restart = 0.0
         saxense_writer = _AsyncStalePipeWriter(saxense.stdin.fileno(), label="bt_direct_audio")
 
         button_strong_env = button_weak_env = 0.0
@@ -1177,17 +1218,33 @@ class HapticsEngine(threading.Thread):
         led_last_write = 0.0
 
         try:
-            while not self._stop_event.is_set() and not self._bt_proxy_should_retry("bluetooth"):
+            while (not self._stop_event.is_set() and not self._bt_proxy_should_retry("bluetooth")
+                   and self._bt_should_use_saxense()):
                 dropped = _drain_stale_audio(parec.stdout, stereo_bytes)
-                now = time.monotonic()
-                if (self.config.get("direct_audio", {}).get("parec_restart_on_stall", False)
-                        and dropped >= PAREC_RESTART_STALL_CHUNKS * stereo_bytes
-                        and now - last_parec_restart > PAREC_RESTART_COOLDOWN_S):
-                    parec.terminate()
-                    parec.wait()
-                    parec = _spawn_stereo_parec(audio_prefix, rate)
-                    last_parec_restart = now
+                if self._should_restart_saxense_for_stall(dropped, stereo_bytes):
+                    print(f"[bt_direct_audio] stall detected ({dropped} bytes dropped) - "
+                          f"restarting SAxense session", flush=True)
+                    return
+                # Diagnostic only - unlike _run_bt_proxy_saxense, this loop
+                # has no select() timeout bounding how long it can wait here:
+                # it's a genuinely blocking read paced by parec's own output
+                # rate, so a stalled/starved audio pipe blocks this whole
+                # thread (including dev.read_one() below - controller input)
+                # for as long as the stall lasts, with nothing else in the
+                # loop able to detect or bound it. read_dur catches that;
+                # work_dur (below) catches the same class of slowness this
+                # loop's own DSP/write work might cause instead.
+                t_before_read = time.monotonic()
                 data = parec.stdout.read(stereo_bytes)
+                t_after_read = time.monotonic()
+                read_dur = t_after_read - t_before_read
+                if read_dur > SELECT_STARVATION_THRESHOLD_S:
+                    print(
+                        f"[bt_direct_audio] parec.read() blocked for {read_dur * 1000:.1f}ms "
+                        f"(expected ~{chunk_ms}ms) - audio pipe stalled or thread starved, "
+                        f"controller input wasn't serviced meanwhile",
+                        flush=True,
+                    )
                 if len(data) < stereo_bytes:
                     if parec.poll() is not None:
                         raise RuntimeError("audio capture (parec) exited")
@@ -1300,6 +1357,9 @@ class HapticsEngine(threading.Thread):
 
                 saxense_writer.write(bytes(out))
                 self._emit_levels(peak_left, peak_right)
+                work_dur = time.monotonic() - t_after_read
+                if work_dur > TICK_LOG_THRESHOLD_S:
+                    print(f"[bt_direct_audio] slow tick, work={work_dur * 1000:.1f}ms", flush=True)
         finally:
             saxense_writer.stop()
             try:
@@ -1359,16 +1419,44 @@ class HapticsEngine(threading.Thread):
         self._bt_proxy_backoff = 5
 
         try:
-            direct_cfg = self.config.get("direct_audio", {})
-            clone_hidraw = None
-            if direct_cfg.get("enabled", True) and direct_cfg.get("bt_enabled", False) and shutil.which("SAxense"):
-                clone_hidraw = bt_hid_proxy.find_clone_hidraw_path()
-            if clone_hidraw:
-                self._run_bt_proxy_saxense(session, dev, clone_hidraw)
-            else:
-                self._run_bt_proxy_envelope(session, dev)
+            # Loops between the two rumble techniques without detaching the
+            # clone, so toggling direct_audio.bt_enabled takes effect live
+            # instead of only on the next full proxy enable/disable (which
+            # tears the clone down and rebuilds it - visible to Steam as a
+            # device drop). Each branch's own while-condition below exits as
+            # soon as _bt_should_use_saxense() no longer matches what it's
+            # running, handing control back here to pick the other one.
+            while not self._stop_event.is_set() and self.config.get("bt_hid_proxy", {}).get("enabled", False):
+                clone_hidraw = bt_hid_proxy.find_clone_hidraw_path() if self._bt_should_use_saxense() else None
+                if clone_hidraw:
+                    self._run_bt_proxy_saxense(session, dev, clone_hidraw)
+                else:
+                    self._run_bt_proxy_envelope(session, dev)
         finally:
             session.detach()
+
+    def _bt_should_use_saxense(self):
+        direct_cfg = self.config.get("direct_audio", {})
+        return bool(direct_cfg.get("enabled", True) and direct_cfg.get("bt_enabled", False)
+                    and shutil.which("SAxense"))
+
+    def _should_restart_saxense_for_stall(self, dropped, stereo_bytes):
+        """True once a stall (see PAREC_RESTART_STALL_CHUNKS) is large enough,
+        and saxense_restart_on_stall is on, to warrant tearing the whole
+        SaXense session down and recreating it - see SAXENSE_RESTART_COOLDOWN_S.
+        Caller just returns from its session function on True; the enclosing
+        loop (_session_fallback / _session_bt_proxy) re-enters it fresh right
+        away since the underlying config (_bt_should_use_saxense) hasn't
+        changed, exactly mirroring toggling bt_enabled off then on by hand."""
+        if not self.config.get("direct_audio", {}).get("saxense_restart_on_stall", False):
+            return False
+        if dropped < PAREC_RESTART_STALL_CHUNKS * stereo_bytes:
+            return False
+        now = time.monotonic()
+        if now - getattr(self, "_last_saxense_restart", 0.0) < SAXENSE_RESTART_COOLDOWN_S:
+            return False
+        self._last_saxense_restart = now
+        return True
 
     def _run_bt_proxy_envelope(self, session, dev):
         """Synthesized-envelope rumble through the proxy - structurally a
@@ -1408,7 +1496,8 @@ class HapticsEngine(threading.Thread):
         last_status_emit = 0.0
 
         try:
-            while not self._stop_event.is_set() and self.config.get("bt_hid_proxy", {}).get("enabled", False):
+            while (not self._stop_event.is_set() and self.config.get("bt_hid_proxy", {}).get("enabled", False)
+                   and not self._bt_should_use_saxense()):
                 readable, _, _ = select.select(
                     [session.real_fd, session.uhid_fd, proc.stdout], [], [], 0.02)
 
@@ -1557,7 +1646,6 @@ class HapticsEngine(threading.Thread):
         saxense = subprocess.Popen(
             ["SAxense"], stdin=subprocess.PIPE, stdout=hidraw_file, stderr=subprocess.DEVNULL,
         )
-        last_parec_restart = 0.0
         saxense_writer = _AsyncStalePipeWriter(saxense.stdin.fileno(), label="bt_proxy_saxense")
 
         button_strong_env = button_weak_env = 0.0
@@ -1579,7 +1667,8 @@ class HapticsEngine(threading.Thread):
         led_last_write = 0.0
 
         try:
-            while not self._stop_event.is_set() and self.config.get("bt_hid_proxy", {}).get("enabled", False):
+            while (not self._stop_event.is_set() and self.config.get("bt_hid_proxy", {}).get("enabled", False)
+                   and self._bt_should_use_saxense()):
                 tick_start = time.monotonic()
                 readable, _, _ = select.select(
                     [session.real_fd, session.uhid_fd, parec.stdout], [], [], 0.02)
@@ -1588,14 +1677,10 @@ class HapticsEngine(threading.Thread):
 
                 if parec.stdout in readable:
                     dropped = _drain_stale_audio(parec.stdout, stereo_bytes)
-                    now = time.monotonic()
-                    if (self.config.get("direct_audio", {}).get("parec_restart_on_stall", False)
-                            and dropped >= PAREC_RESTART_STALL_CHUNKS * stereo_bytes
-                            and now - last_parec_restart > PAREC_RESTART_COOLDOWN_S):
-                        parec.terminate()
-                        parec.wait()
-                        parec = _spawn_stereo_parec(audio_prefix, rate)
-                        last_parec_restart = now
+                    if self._should_restart_saxense_for_stall(dropped, stereo_bytes):
+                        print(f"[bt_proxy_saxense] stall detected ({dropped} bytes dropped) - "
+                              f"restarting SAxense session", flush=True)
+                        return
                     data = parec.stdout.read(stereo_bytes)
                     if len(data) < stereo_bytes:
                         if parec.poll() is not None:
@@ -1769,7 +1854,7 @@ class HapticsEngine(threading.Thread):
                 # ready: audio (parec read/DSP/SAxense write) runs before
                 # relay_input()/the uhid drain in this same tick, so a slow
                 # audio phase pushes those back too - which would feel
-                # exactly like a control drop even with parec_restart_on_stall
+                # exactly like a control drop even with saxense_restart_on_stall
                 # off.
                 work_dur = audio_dur + relay_dur + uhid_dur
                 select_wait = t_select - tick_start
@@ -1809,6 +1894,7 @@ class HapticsEngine(threading.Thread):
             hidraw_file.close()
 
     def _session_ff(self, dev):
+        print(f"[session_ff] entering, kind={connection_kind(dev)}", flush=True)
         effect = ff.Effect(
             ecodes.FF_RUMBLE, -1, 0,
             ff.Trigger(0, 0),
@@ -1864,7 +1950,8 @@ class HapticsEngine(threading.Thread):
         kind = connection_kind(dev)
 
         try:
-            while not self._stop_event.is_set() and not self._bt_proxy_should_retry(kind):
+            while (not self._stop_event.is_set() and not self._bt_proxy_should_retry(kind)
+                   and not self._should_switch_from_ff(kind)):
                 _drain_stale_audio(proc.stdout, CHUNK_BYTES)
                 data = proc.stdout.read(CHUNK_BYTES)
                 if len(data) < CHUNK_BYTES:

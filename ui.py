@@ -1346,18 +1346,18 @@ class ExperimentalPage(QWidget):
             lambda i: self._set_bt_chunk_ms(self.bt_chunk_ms_combo.itemData(i)))
         dl.addWidget(self.bt_chunk_ms_combo)
 
-        parec_restart_hint = QLabel(t("parec_restart_hint"))
-        parec_restart_hint.setProperty("role", "hint")
-        parec_restart_hint.setWordWrap(True)
-        dl.addWidget(parec_restart_hint)
-        parec_restart_warning = QLabel(t("parec_restart_warning"))
-        parec_restart_warning.setWordWrap(True)
-        parec_restart_warning.setStyleSheet("font-weight: 700; color: #d64545;")
-        dl.addWidget(parec_restart_warning)
-        self.parec_restart_check = QCheckBox(t("parec_restart_checkbox"))
-        self.parec_restart_check.setChecked(direct_cfg.get("parec_restart_on_stall", False))
-        self.parec_restart_check.toggled.connect(self._set_parec_restart_on_stall)
-        dl.addWidget(self.parec_restart_check)
+        saxense_restart_hint = QLabel(t("saxense_restart_hint"))
+        saxense_restart_hint.setProperty("role", "hint")
+        saxense_restart_hint.setWordWrap(True)
+        dl.addWidget(saxense_restart_hint)
+        saxense_restart_warning = QLabel(t("saxense_restart_warning"))
+        saxense_restart_warning.setWordWrap(True)
+        saxense_restart_warning.setStyleSheet("font-weight: 700; color: #d64545;")
+        dl.addWidget(saxense_restart_warning)
+        self.saxense_restart_check = QCheckBox(t("saxense_restart_checkbox"))
+        self.saxense_restart_check.setChecked(direct_cfg.get("saxense_restart_on_stall", False))
+        self.saxense_restart_check.toggled.connect(self._set_saxense_restart_on_stall)
+        dl.addWidget(self.saxense_restart_check)
 
         inner_layout.addWidget(direct_box)
 
@@ -1403,8 +1403,8 @@ class ExperimentalPage(QWidget):
         if self.on_change:
             self.on_change()
 
-    def _set_parec_restart_on_stall(self, checked):
-        self.state["active"]["direct_audio"]["parec_restart_on_stall"] = checked
+    def _set_saxense_restart_on_stall(self, checked):
+        self.state["active"]["direct_audio"]["saxense_restart_on_stall"] = checked
         if self.on_change:
             self.on_change()
 
@@ -1435,9 +1435,9 @@ class ExperimentalPage(QWidget):
         self.bt_chunk_ms_combo.blockSignals(True)
         self.bt_chunk_ms_combo.setCurrentIndex(idx)
         self.bt_chunk_ms_combo.blockSignals(False)
-        self.parec_restart_check.blockSignals(True)
-        self.parec_restart_check.setChecked(direct_cfg.get("parec_restart_on_stall", False))
-        self.parec_restart_check.blockSignals(False)
+        self.saxense_restart_check.blockSignals(True)
+        self.saxense_restart_check.setChecked(direct_cfg.get("saxense_restart_on_stall", False))
+        self.saxense_restart_check.blockSignals(False)
         self.bt_proxy_check.blockSignals(True)
         self.bt_proxy_check.setChecked(self.state["active"]["bt_hid_proxy"].get("enabled", False))
         self.bt_proxy_check.blockSignals(False)
