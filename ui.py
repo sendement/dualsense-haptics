@@ -70,7 +70,8 @@ BUTTON_OPTIONS = LEFT_BUTTON_OPTIONS + RIGHT_BUTTON_OPTIONS
 NAV_ITEMS = [
     ("home", "nav_home"), ("presets", "nav_presets"), ("profiles", "nav_profiles"),
     ("triggers", "nav_triggers"), ("button_haptic", "nav_button_haptic"),
-    ("advanced", "nav_advanced"), ("settings", "nav_settings"),
+    ("advanced", "nav_advanced"), ("led", "nav_led"), ("experimental", "nav_experimental"),
+    ("settings", "nav_settings"),
 ]
 
 
@@ -803,8 +804,15 @@ class ProfilesPage(QWidget):
 
     def refresh(self):
         self.list.clear()
+        active_ref = self.state["active_ref"]
         for name in sorted(self.state["profiles"]):
-            self.list.addItem(QListWidgetItem(name))
+            item = QListWidgetItem(name)
+            self.list.addItem(item)
+            if active_ref == f"profile:{name}":
+                font = item.font()
+                font.setBold(True)
+                item.setFont(font)
+                self.list.setCurrentItem(item)
 
     def _selected_name(self):
         item = self.list.currentItem()
@@ -1051,6 +1059,7 @@ class ButtonHapticRow(QWidget):
         layout.setSpacing(2)
 
         self.check = QCheckBox(label)
+        self.check.setChecked(entry.get("enabled", False))
         layout.addWidget(self.check)
 
         strength_row = QHBoxLayout()
@@ -1188,6 +1197,117 @@ class AdvancedPage(QWidget):
         gl.addWidget(self.gain_slider)
         inner_layout.addWidget(general_box)
 
+        self.bass_box = band_group(t("group_bass"), active["bass"], active["bass_ceiling"], on_change)
+        self.treble_box = band_group(t("group_treble"), active["treble"], active["treble_ceiling"], on_change)
+        inner_layout.addWidget(self.bass_box)
+        inner_layout.addWidget(self.treble_box)
+        inner_layout.addStretch(1)
+
+        scroll.setWidget(inner)
+        outer.addWidget(scroll)
+
+    def _set_gain(self, v):
+        self.state["active"]["master_gain"] = v
+
+    def refresh(self):
+        self.gain_slider.set_value(self.state["active"]["master_gain"])
+        self.bass_box.refresh()
+        self.treble_box.refresh()
+
+
+class LedPage(QWidget):
+    def __init__(self, state, on_change):
+        super().__init__()
+        self.state = state
+        self.on_change = on_change
+        active = state["active"]
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(28, 28, 28, 28)
+        title = QLabel(t("led_title"))
+        title.setProperty("role", "h1")
+        outer.addWidget(title)
+        hint = QLabel(t("led_visualizer_hint"))
+        hint.setProperty("role", "hint")
+        hint.setWordWrap(True)
+        outer.addWidget(hint)
+
+        led_cfg = active.get("led_visualizer", {})
+        self.led_visualizer_check = QCheckBox(t("led_visualizer_checkbox"))
+        self.led_visualizer_check.setChecked(led_cfg.get("enabled", False))
+        self.led_visualizer_check.toggled.connect(self._set_led_visualizer_enabled)
+        outer.addWidget(self.led_visualizer_check)
+
+        self.led_attack_slider = ParamSlider(
+            t("label_led_attack"), 0.05, 1.0, led_cfg.get("attack", 0.5), 2,
+            t("led_attack_hint"), self._set_led_attack)
+        outer.addWidget(self.led_attack_slider)
+        self.led_release_slider = ParamSlider(
+            t("label_led_release"), 0.01, 0.5, led_cfg.get("release", 0.08), 2,
+            t("led_release_hint"), self._set_led_release)
+        outer.addWidget(self.led_release_slider)
+        self.led_gamma_slider = ParamSlider(
+            t("label_led_gamma"), 0.5, 3.0, led_cfg.get("gamma", 1.8), 1,
+            t("led_gamma_hint"), self._set_led_gamma)
+        outer.addWidget(self.led_gamma_slider)
+        self.led_bass_priority_slider = ParamSlider(
+            t("label_led_bass_priority"), 0.0, 1.0, led_cfg.get("bass_priority", 0.6), 2,
+            t("led_bass_priority_hint"), self._set_led_bass_priority)
+        outer.addWidget(self.led_bass_priority_slider)
+
+        outer.addStretch(1)
+
+    def _set_led_visualizer_enabled(self, checked):
+        self.state["active"].setdefault("led_visualizer", {})["enabled"] = checked
+        if self.on_change:
+            self.on_change()
+
+    def _set_led_attack(self, v):
+        self.state["active"].setdefault("led_visualizer", {})["attack"] = v
+
+    def _set_led_release(self, v):
+        self.state["active"].setdefault("led_visualizer", {})["release"] = v
+
+    def _set_led_gamma(self, v):
+        self.state["active"].setdefault("led_visualizer", {})["gamma"] = v
+
+    def _set_led_bass_priority(self, v):
+        self.state["active"].setdefault("led_visualizer", {})["bass_priority"] = v
+
+    def refresh(self):
+        led_cfg = self.state["active"].get("led_visualizer", {})
+        self.led_visualizer_check.blockSignals(True)
+        self.led_visualizer_check.setChecked(led_cfg.get("enabled", False))
+        self.led_visualizer_check.blockSignals(False)
+        self.led_attack_slider.set_value(led_cfg.get("attack", 0.5))
+        self.led_release_slider.set_value(led_cfg.get("release", 0.08))
+        self.led_gamma_slider.set_value(led_cfg.get("gamma", 1.8))
+        self.led_bass_priority_slider.set_value(led_cfg.get("bass_priority", 0.6))
+
+
+class ExperimentalPage(QWidget):
+    def __init__(self, state, on_change):
+        super().__init__()
+        self.state = state
+        self.on_change = on_change
+        active = state["active"]
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(28, 28, 28, 28)
+        title = QLabel(t("experimental_title"))
+        title.setProperty("role", "h1")
+        outer.addWidget(title)
+        hint = QLabel(t("experimental_hint"))
+        hint.setProperty("role", "hint")
+        hint.setWordWrap(True)
+        outer.addWidget(hint)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        inner = QWidget()
+        inner_layout = QVBoxLayout(inner)
+
         direct_box = QGroupBox(t("group_direct_audio"))
         dl = QVBoxLayout(direct_box)
         direct_hint = QLabel(t("direct_audio_hint"))
@@ -1257,46 +1377,11 @@ class AdvancedPage(QWidget):
         self.bt_proxy_check.toggled.connect(self._set_bt_proxy_enabled)
         pl.addWidget(self.bt_proxy_check)
 
-        led_hint = QLabel(t("led_visualizer_hint"))
-        led_hint.setProperty("role", "hint")
-        led_hint.setWordWrap(True)
-        pl.addWidget(led_hint)
-        led_cfg = active.get("led_visualizer", {})
-        self.led_visualizer_check = QCheckBox(t("led_visualizer_checkbox"))
-        self.led_visualizer_check.setChecked(led_cfg.get("enabled", False))
-        self.led_visualizer_check.toggled.connect(self._set_led_visualizer_enabled)
-        pl.addWidget(self.led_visualizer_check)
-
-        self.led_attack_slider = ParamSlider(
-            t("label_led_attack"), 0.05, 1.0, led_cfg.get("attack", 0.5), 2,
-            t("led_attack_hint"), self._set_led_attack)
-        pl.addWidget(self.led_attack_slider)
-        self.led_release_slider = ParamSlider(
-            t("label_led_release"), 0.01, 0.5, led_cfg.get("release", 0.08), 2,
-            t("led_release_hint"), self._set_led_release)
-        pl.addWidget(self.led_release_slider)
-        self.led_gamma_slider = ParamSlider(
-            t("label_led_gamma"), 0.5, 3.0, led_cfg.get("gamma", 1.8), 1,
-            t("led_gamma_hint"), self._set_led_gamma)
-        pl.addWidget(self.led_gamma_slider)
-        self.led_bass_priority_slider = ParamSlider(
-            t("label_led_bass_priority"), 0.0, 1.0, led_cfg.get("bass_priority", 0.6), 2,
-            t("led_bass_priority_hint"), self._set_led_bass_priority)
-        pl.addWidget(self.led_bass_priority_slider)
-
         inner_layout.addWidget(proxy_box)
-
-        self.bass_box = band_group(t("group_bass"), active["bass"], active["bass_ceiling"], on_change)
-        self.treble_box = band_group(t("group_treble"), active["treble"], active["treble_ceiling"], on_change)
-        inner_layout.addWidget(self.bass_box)
-        inner_layout.addWidget(self.treble_box)
         inner_layout.addStretch(1)
 
         scroll.setWidget(inner)
         outer.addWidget(scroll)
-
-    def _set_gain(self, v):
-        self.state["active"]["master_gain"] = v
 
     def _set_direct_enabled(self, checked):
         self.state["active"]["direct_audio"]["enabled"] = checked
@@ -1336,25 +1421,7 @@ class AdvancedPage(QWidget):
         if self.on_change:
             self.on_change()
 
-    def _set_led_visualizer_enabled(self, checked):
-        self.state["active"].setdefault("led_visualizer", {})["enabled"] = checked
-        if self.on_change:
-            self.on_change()
-
-    def _set_led_attack(self, v):
-        self.state["active"].setdefault("led_visualizer", {})["attack"] = v
-
-    def _set_led_release(self, v):
-        self.state["active"].setdefault("led_visualizer", {})["release"] = v
-
-    def _set_led_gamma(self, v):
-        self.state["active"].setdefault("led_visualizer", {})["gamma"] = v
-
-    def _set_led_bass_priority(self, v):
-        self.state["active"].setdefault("led_visualizer", {})["bass_priority"] = v
-
     def refresh(self):
-        self.gain_slider.set_value(self.state["active"]["master_gain"])
         direct_cfg = self.state["active"]["direct_audio"]
         self.direct_check.blockSignals(True)
         self.direct_check.setChecked(direct_cfg.get("enabled", True))
@@ -1374,16 +1441,6 @@ class AdvancedPage(QWidget):
         self.bt_proxy_check.blockSignals(True)
         self.bt_proxy_check.setChecked(self.state["active"]["bt_hid_proxy"].get("enabled", False))
         self.bt_proxy_check.blockSignals(False)
-        self.led_visualizer_check.blockSignals(True)
-        self.led_visualizer_check.setChecked(self.state["active"].get("led_visualizer", {}).get("enabled", False))
-        self.led_visualizer_check.blockSignals(False)
-        led_cfg = self.state["active"].get("led_visualizer", {})
-        self.led_attack_slider.set_value(led_cfg.get("attack", 0.5))
-        self.led_release_slider.set_value(led_cfg.get("release", 0.08))
-        self.led_gamma_slider.set_value(led_cfg.get("gamma", 1.8))
-        self.led_bass_priority_slider.set_value(led_cfg.get("bass_priority", 0.6))
-        self.bass_box.refresh()
-        self.treble_box.refresh()
 
 
 class SettingsPage(QWidget):
@@ -1496,6 +1553,8 @@ class MainWindow(QWidget):
             self.state, self._apply_trigger_preset, self._turn_off_triggers, self._apply_custom_trigger)
         self.button_haptic_page = ButtonHapticPage(self.state, self.save_cb)
         self.advanced_page = AdvancedPage(self.state, self._on_advanced_change)
+        self.led_page = LedPage(self.state, self._on_advanced_change)
+        self.experimental_page = ExperimentalPage(self.state, self._on_advanced_change)
         self.settings_page = SettingsPage(self.state, self._on_theme_pref_change, self._on_language_pref_change)
 
         self.pages = {
@@ -1505,6 +1564,8 @@ class MainWindow(QWidget):
             "triggers": self.triggers_page,
             "button_haptic": self.button_haptic_page,
             "advanced": self.advanced_page,
+            "led": self.led_page,
+            "experimental": self.experimental_page,
             "settings": self.settings_page,
         }
         for page in self.pages.values():
@@ -1602,6 +1663,8 @@ class MainWindow(QWidget):
         self.profiles_page.refresh()
         self.triggers_page.refresh()
         self.advanced_page.refresh()
+        self.led_page.refresh()
+        self.experimental_page.refresh()
 
     def _toggle(self):
         if self.enabled:
