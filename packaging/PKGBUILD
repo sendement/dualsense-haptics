@@ -1,6 +1,6 @@
 # Maintainer: local build, not published
 pkgname=dualsense-haptics
-pkgver=1.4.0
+pkgver=1.5.0
 pkgrel=1
 pkgdesc="Audio-to-haptics daemon and GUI for the DualSense controller over USB or Bluetooth"
 # Ships a compiled helper (dualsense-hidlock, for the Bluetooth HID Proxy
