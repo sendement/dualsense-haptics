@@ -12,6 +12,7 @@ the real default-merging - reads it back correctly) and polls status.json
 that the runner writes. presets.py has no evdev dependency, so it's
 imported directly and safely.
 """
+import asyncio
 import json
 import os
 import pwd
@@ -78,6 +79,50 @@ def _kill_stale_headless_runner():
         pass
 
 
+def _iter_processes():
+    """Yields (comm, cmdline) for every readable process - used to sniff out
+    a real gamescope/Big Picture session (see _in_deck_like_session) without
+    depending on external tools like pgrep being present."""
+    try:
+        pids = [p for p in os.listdir("/proc") if p.isdigit()]
+    except OSError:
+        return
+    for pid in pids:
+        try:
+            with open(f"/proc/{pid}/comm") as f:
+                comm = f.read().strip()
+        except OSError:
+            continue
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                cmdline = f.read().decode("utf-8", "replace").replace("\x00", " ")
+        except OSError:
+            cmdline = ""
+        yield comm, cmdline
+
+
+def _in_deck_like_session() -> bool:
+    """True while the Steam Deck's Gaming Mode compositor (gamescope) or
+    Steam's own Big Picture UI is running - the only contexts where this
+    plugin's engine has any business holding the controller. Elsewhere
+    (Desktop Mode, a plain Linux desktop, Steam in its normal Library view)
+    the desktop dualsense-haptics app is assumed to be the one in charge -
+    see _session_monitor_loop, which pauses/resumes the engine around this."""
+    for comm, cmdline in _iter_processes():
+        if comm == "gamescope":
+            return True
+        if comm == "steam" and any(flag in cmdline for flag in ("-gamepadui", "-tenfoot", "steamos-bigpicture")):
+            return True
+    return False
+
+
+# How often _session_monitor_loop re-checks _in_deck_like_session() - frequent
+# enough that switching to Desktop Mode (or quitting Big Picture) hands the
+# controller back to a waiting desktop app within a few seconds, but cheap
+# enough (one /proc scan) to just run for the plugin's whole lifetime.
+GAMESCOPE_POLL_INTERVAL_S = 10
+
+
 def _dualsensectl_prefix():
     """Mirrors triggers.py's own helper (not importable here - see module
     docstring, triggers.py pulls in evdev via haptics_engine). Targets the
@@ -134,15 +179,45 @@ def _build_custom_args(mode, values):
 class Plugin:
     async def _main(self):
         self.proc = None
+        self._user_wants_running = False
+        self._paused_outside_session = False
         _kill_stale_headless_runner()
         bt_hid_proxy.recover_stale_lock()
         decky.logger.info("DualSense Haptics (Deck) loaded")
+        asyncio.create_task(self._session_monitor_loop())
 
     async def _unload(self):
         await self.stop_engine()
         decky.logger.info("DualSense Haptics (Deck) unloaded")
 
-    async def start_engine(self) -> bool:
+    async def _session_monitor_loop(self):
+        """Auto-pauses the engine outside gamescope/Big Picture (see
+        _in_deck_like_session) so it never fights a desktop dualsense-haptics
+        instance for the same controller/BT HID proxy clone - whether that's
+        this same box running both for local plugin development, or a real
+        Deck's Desktop Mode - and auto-resumes it on returning to a
+        Deck-like session, but only if the user's own toggle was left on."""
+        while True:
+            await asyncio.sleep(GAMESCOPE_POLL_INTERVAL_S)
+            try:
+                in_session = _in_deck_like_session()
+            except Exception:
+                continue
+            running = self.proc is not None and self.proc.poll() is None
+            if not in_session and running:
+                decky.logger.info(
+                    "Outside gamescope/Big Picture - pausing engine so a desktop instance can take the controller")
+                await self.stop_engine(_auto=True)
+                self._paused_outside_session = True
+            elif in_session and self._paused_outside_session and self._user_wants_running:
+                decky.logger.info("Back in gamescope/Big Picture - resuming engine")
+                self._paused_outside_session = False
+                await self.start_engine(_auto=True)
+
+    async def start_engine(self, _auto: bool = False) -> bool:
+        if not _auto:
+            self._user_wants_running = True
+            self._paused_outside_session = False
         if self.proc is None or self.proc.poll() is not None:
             _kill_stale_headless_runner()
             os.makedirs(decky.DECKY_PLUGIN_RUNTIME_DIR, exist_ok=True)
@@ -169,7 +244,10 @@ class Plugin:
             )
         return True
 
-    async def stop_engine(self) -> bool:
+    async def stop_engine(self, _auto: bool = False) -> bool:
+        if not _auto:
+            self._user_wants_running = False
+            self._paused_outside_session = False
         if self.proc is not None:
             self.proc.terminate()
             try:
