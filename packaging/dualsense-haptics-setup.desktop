@@ -2,7 +2,7 @@
 [Desktop Entry]
 Type=Application
 Name=DualSense Haptics - Optional Setup
-Comment=One-time setup for Trigger + Vibration Mix and SAxense (double-click to run)
+Comment=One-time setup for Trigger + Vibration Mix (double-click to run)
 Exec=sh -c "$(dirname '%k')/dualsense-haptics-setup.sh"
 Icon=input-gaming
 Categories=Utility;Settings;

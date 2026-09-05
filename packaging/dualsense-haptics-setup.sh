@@ -3,12 +3,12 @@
 #
 # Lets a user install the app itself (Arch: builds+installs the package;
 # other distros: a source checkout + a desktop launcher), the Steam Deck /
-# Decky Loader plugin, and the two optional extras that otherwise need a
-# manual command block from the README's "Other distributions" section:
-# Trigger + Vibration Mix (a udev rule + a small setcap'd helper + one group
-# membership) and SAxense (an external tool built from source). Uses zenity
-# for the checklist/progress dialogs and pkexec for the privileged steps, so
-# nothing here requires a terminal beyond double-clicking
+# Decky Loader plugin, and the optional extra that otherwise needs a manual
+# command block from the README's "Other distributions" section: Trigger +
+# Vibration Mix (a udev rule + a small setcap'd helper + one group
+# membership). Uses zenity for the checklist/progress dialogs and pkexec for
+# the privileged steps, so nothing here requires a terminal beyond
+# double-clicking
 # dualsense-haptics-setup.desktop - the same "download it, double-click it,
 # type your password when asked" shape as Decky Loader's own installer.
 #
@@ -48,7 +48,6 @@ CHOICES=$(zenity --list --checklist \
     TRUE  "app"          "The DualSense Haptics app itself (Arch: builds+installs the package; other distros: a source checkout + an app launcher)" \
     FALSE "deck"         "Steam Deck / Decky Loader plugin - puts the essentials in the Quick Access Menu (needs Decky Loader already installed)" \
     TRUE  "trigger_mix"  "Trigger + Vibration Mix: lets vibration and native adaptive triggers work together over Bluetooth (installs a udev rule + a small helper, adds one group to your user)" \
-    FALSE "saxense"      "SAxense (experimental): higher-fidelity vibration over Bluetooth, builds a small external tool from source" \
     --separator="|" --hide-column=2 --print-column=2)
 status=$?
 [ $status -ne 0 ] && exit 0   # cancelled
@@ -61,20 +60,17 @@ fi
 want_app=0
 want_deck=0
 want_trigger_mix=0
-want_saxense=0
 IFS="|" read -ra SELECTED <<< "$CHOICES"
 for item in "${SELECTED[@]}"; do
     case "$item" in
         app) want_app=1 ;;
         deck) want_deck=1 ;;
         trigger_mix) want_trigger_mix=1 ;;
-        saxense) want_saxense=1 ;;
     esac
 done
 
-# app/deck/trigger_mix all need files out of the repo itself; saxense doesn't
-# (it clones its own separate source). Resolve this once, up front, so every
-# step below can just read $REPO_DIR.
+# app/deck/trigger_mix all need files out of the repo itself. Resolve this
+# once, up front, so every step below can just read $REPO_DIR.
 if { [ "$want_app" = 1 ] || [ "$want_deck" = 1 ] || [ "$want_trigger_mix" = 1 ]; } && [ -z "$REPO_DIR" ]; then
     BOOTSTRAPPED_REPO_DIR=$(mktemp -d)
     if ! git clone --depth=1 "$REPO_URL" "$BOOTSTRAPPED_REPO_DIR" 2>/dev/null; then
@@ -255,30 +251,6 @@ EOF
         ) | zenity --progress --title="Setting up Trigger + Vibration Mix" --auto-close --no-cancel --pulsate
         [ "${PIPESTATUS[0]}" -ne 0 ] && failures="$failures\n- Trigger + Vibration Mix"
     fi
-fi
-
-if [ "$want_saxense" = 1 ]; then
-    (
-        echo "10"; echo "# Cloning SAxense..."
-        SRC_TMP=$(mktemp -d)
-        if ! git clone --depth=1 https://github.com/egormanga/SAxense.git "$SRC_TMP" 2>/dev/null; then
-            echo "100"; exit 1
-        fi
-
-        echo "50"; echo "# Building..."
-        if ! make -C "$SRC_TMP" >/dev/null 2>&1; then
-            rm -rf "$SRC_TMP"
-            echo "100"; exit 1
-        fi
-
-        echo "80"; echo "# Installing (admin access)..."
-        ok=1
-        pkexec install -Dm755 "$SRC_TMP/SAxense" /usr/local/bin/SAxense || ok=0
-        rm -rf "$SRC_TMP"
-        echo "100"
-        [ "$ok" = 1 ] || exit 1
-    ) | zenity --progress --title="Setting up SAxense" --auto-close --no-cancel --pulsate
-    [ "${PIPESTATUS[0]}" -ne 0 ] && failures="$failures\n- SAxense"
 fi
 
 if [ -n "$failures" ]; then
