@@ -20,6 +20,7 @@ VENDORED_UNCHANGED = [
     "config.py",
     "haptics_engine.py",
     "presets.py",
+    "saxense_algo.py",
     "triggers.py",
 ]
 
