@@ -19,7 +19,7 @@ STRINGS = {
     "en": {
         "nav_home": "Home", "nav_presets": "Presets", "nav_profiles": "Profiles",
         "nav_triggers": "Triggers", "nav_button_haptic": "Button Vibration",
-        "nav_advanced": "Vibration Settings", "nav_led": "LED Indication", "nav_experimental": "Experimental Features", "nav_settings": "Settings",
+        "nav_advanced": "Vibration Settings", "nav_led": "LED Indication", "nav_experimental": "Experimental Features", "nav_settings": "Settings", "sidebar_collapse_tooltip": "Collapse sidebar", "sidebar_expand_tooltip": "Expand sidebar", "sidebar_menu_label": "Menu",
         "status_searching": "Searching for controller…", "status_connected": "Connected",
         "status_disabled": "Disabled", "status_error": "Error: {msg}",
         "status_overridden": "Overridden by Steam",
@@ -147,7 +147,7 @@ STRINGS = {
     "ru": {
         "nav_home": "Главная", "nav_presets": "Пресеты", "nav_profiles": "Профили",
         "nav_triggers": "Триггеры", "nav_button_haptic": "Вибрация кнопки",
-        "nav_advanced": "Настройки вибрации", "nav_led": "LED-подсветка", "nav_experimental": "Экспериментальные функции", "nav_settings": "Настройки",
+        "nav_advanced": "Настройки вибрации", "nav_led": "LED-подсветка", "nav_experimental": "Экспериментальные функции", "nav_settings": "Настройки", "sidebar_collapse_tooltip": "Свернуть меню", "sidebar_expand_tooltip": "Развернуть меню", "sidebar_menu_label": "Меню",
         "status_searching": "Поиск контроллера...", "status_connected": "Подключено",
         "status_disabled": "Отключено", "status_error": "Ошибка: {msg}",
         "status_overridden": "Перехвачено Steam",
@@ -276,7 +276,7 @@ STRINGS = {
     },
     "zh": {
         "nav_home": "主页", "nav_presets": "预设", "nav_profiles": "配置文件", "nav_triggers": "扳机",
-        "nav_button_haptic": "按键振动", "nav_advanced": "振动设置", "nav_led": "LED 指示灯", "nav_experimental": "实验性功能", "nav_settings": "设置",
+        "nav_button_haptic": "按键振动", "nav_advanced": "振动设置", "nav_led": "LED 指示灯", "nav_experimental": "实验性功能", "nav_settings": "设置", "sidebar_collapse_tooltip": "收起侧边栏", "sidebar_expand_tooltip": "展开侧边栏", "sidebar_menu_label": "菜单",
         "status_searching": "正在搜索控制器…", "status_connected": "已连接", "status_disabled": "已禁用",
         "status_error": "错误：{msg}", "status_overridden": "已被 Steam 接管",
         "status_proxied": "正在与 Steam 混合（代理已激活）", "status_bt_proxy_unavailable": "扳机+震动混合不可用",
@@ -374,7 +374,7 @@ STRINGS = {
     },
     "es": {
         "nav_home": "Inicio", "nav_presets": "Preajustes", "nav_profiles": "Perfiles", "nav_triggers": "Gatillos",
-        "nav_button_haptic": "Vibración de botones", "nav_advanced": "Ajustes de vibración", "nav_led": "Indicación LED", "nav_experimental": "Funciones experimentales", "nav_settings": "Ajustes",
+        "nav_button_haptic": "Vibración de botones", "nav_advanced": "Ajustes de vibración", "nav_led": "Indicación LED", "nav_experimental": "Funciones experimentales", "nav_settings": "Ajustes", "sidebar_collapse_tooltip": "Contraer barra lateral", "sidebar_expand_tooltip": "Expandir barra lateral", "sidebar_menu_label": "Menú",
         "status_searching": "Buscando mando…", "status_connected": "Conectado", "status_disabled": "Desactivado",
         "status_error": "Error: {msg}", "status_overridden": "Anulado por Steam",
         "status_proxied": "Mezclando con Steam (proxy activo)", "status_bt_proxy_unavailable": "Mezcla de gatillo+vibración no disponible",
@@ -495,7 +495,7 @@ STRINGS = {
     "de": {
         "nav_home": "Start", "nav_presets": "Presets", "nav_profiles": "Profile", "nav_triggers": "Trigger",
         "nav_button_haptic": "Tasten-Vibration", "nav_advanced": "Vibrationseinstellungen", "nav_led": "LED-Anzeige", "nav_experimental": "Experimentelle Funktionen",
-        "nav_settings": "Einstellungen", "status_searching": "Suche nach Controller…",
+        "nav_settings": "Einstellungen", "sidebar_collapse_tooltip": "Seitenleiste einklappen", "sidebar_expand_tooltip": "Seitenleiste ausklappen", "sidebar_menu_label": "Menü", "status_searching": "Suche nach Controller…",
         "status_connected": "Verbunden", "status_disabled": "Deaktiviert", "status_error": "Fehler: {msg}",
         "status_overridden": "Von Steam übersteuert",
         "status_proxied": "Mischung mit Steam (Proxy aktiv)",
@@ -616,7 +616,7 @@ STRINGS = {
     "fr": {
         "nav_home": "Accueil", "nav_presets": "Préréglages", "nav_profiles": "Profils",
         "nav_triggers": "Gâchettes", "nav_button_haptic": "Vibration des boutons",
-        "nav_advanced": "Paramètres de vibration", "nav_led": "Indication LED", "nav_experimental": "Fonctionnalités expérimentales", "nav_settings": "Paramètres",
+        "nav_advanced": "Paramètres de vibration", "nav_led": "Indication LED", "nav_experimental": "Fonctionnalités expérimentales", "nav_settings": "Paramètres", "sidebar_collapse_tooltip": "Réduire la barre latérale", "sidebar_expand_tooltip": "Développer la barre latérale", "sidebar_menu_label": "Menu",
         "status_searching": "Recherche de la manette…", "status_connected": "Connectée",
         "status_disabled": "Désactivée", "status_error": "Erreur : {msg}",
         "status_overridden": "Remplacé par Steam",
@@ -740,7 +740,7 @@ STRINGS = {
     "ja": {
         "nav_home": "ホーム", "nav_presets": "プリセット", "nav_profiles": "プロファイル",
         "nav_triggers": "トリガー", "nav_button_haptic": "ボタン振動", "nav_advanced": "振動設定", "nav_led": "LED表示", "nav_experimental": "実験的機能",
-        "nav_settings": "設定", "status_searching": "コントローラーを検索中…", "status_connected": "接続済み",
+        "nav_settings": "設定", "sidebar_collapse_tooltip": "サイドバーを折りたたむ", "sidebar_expand_tooltip": "サイドバーを展開する", "sidebar_menu_label": "メニュー", "status_searching": "コントローラーを検索中…", "status_connected": "接続済み",
         "status_disabled": "無効", "status_error": "エラー: {msg}",
         "status_overridden": "Steamに上書きされています",
         "status_proxied": "Steamとミックス中（プロキシ有効）", "status_bt_proxy_unavailable": "トリガー+振動ミックスが利用できません",
@@ -856,7 +856,7 @@ STRINGS = {
     "pt": {
         "nav_home": "Início", "nav_presets": "Predefinições", "nav_profiles": "Perfis",
         "nav_triggers": "Gatilhos", "nav_button_haptic": "Vibração dos botões",
-        "nav_advanced": "Configurações de vibração", "nav_led": "Indicação LED", "nav_experimental": "Recursos experimentais", "nav_settings": "Configurações",
+        "nav_advanced": "Configurações de vibração", "nav_led": "Indicação LED", "nav_experimental": "Recursos experimentais", "nav_settings": "Configurações", "sidebar_collapse_tooltip": "Recolher barra lateral", "sidebar_expand_tooltip": "Expandir barra lateral", "sidebar_menu_label": "Menu",
         "status_searching": "Procurando controle…", "status_connected": "Conectado",
         "status_disabled": "Desativado", "status_error": "Erro: {msg}",
         "status_overridden": "Sobreposto pelo Steam",
@@ -977,7 +977,7 @@ STRINGS = {
     },
     "ko": {
         "nav_home": "홈", "nav_presets": "프리셋", "nav_profiles": "프로필", "nav_triggers": "트리거",
-        "nav_button_haptic": "버튼 진동", "nav_advanced": "진동 설정", "nav_led": "LED 표시", "nav_experimental": "실험적 기능", "nav_settings": "설정",
+        "nav_button_haptic": "버튼 진동", "nav_advanced": "진동 설정", "nav_led": "LED 표시", "nav_experimental": "실험적 기능", "nav_settings": "설정", "sidebar_collapse_tooltip": "사이드바 접기", "sidebar_expand_tooltip": "사이드바 펼치기", "sidebar_menu_label": "메뉴",
         "status_searching": "컨트롤러 검색 중…", "status_connected": "연결됨", "status_disabled": "비활성화됨",
         "status_error": "오류: {msg}", "status_overridden": "Steam이 가로챔",
         "status_proxied": "Steam과 믹싱 중 (프록시 활성)", "status_bt_proxy_unavailable": "트리거+진동 믹스 사용 불가",

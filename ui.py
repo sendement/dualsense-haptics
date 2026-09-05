@@ -5,7 +5,8 @@ import queue
 from pathlib import Path
 
 from PySide6.QtCore import (
-    Qt, QTimer, QRectF, QPointF, QEvent, QObject, QPropertyAnimation, QEasingCurve,
+    Qt, QTimer, QRectF, QPointF, QSize, QEvent, QObject, QPropertyAnimation, QEasingCurve,
+    Property,
 )
 from PySide6.QtGui import (
     QIcon, QPixmap, QPainter, QColor, QPen, QLinearGradient, QPainterPath,
@@ -68,27 +69,88 @@ RIGHT_BUTTON_OPTIONS = [
 BUTTON_OPTIONS = LEFT_BUTTON_OPTIONS + RIGHT_BUTTON_OPTIONS
 
 NAV_ITEMS = [
-    ("home", "nav_home"), ("presets", "nav_presets"), ("profiles", "nav_profiles"),
-    ("triggers", "nav_triggers"), ("button_haptic", "nav_button_haptic"),
-    ("advanced", "nav_advanced"), ("led", "nav_led"), ("experimental", "nav_experimental"),
-    ("settings", "nav_settings"),
+    ("home", "nav_home", "🏠"), ("presets", "nav_presets", "📋"),
+    ("profiles", "nav_profiles", "👤"), ("triggers", "nav_triggers", "🎯"),
+    ("button_haptic", "nav_button_haptic", "🔘"), ("advanced", "nav_advanced", "📳"),
+    ("led", "nav_led", "💡"), ("experimental", "nav_experimental", "🧪"),
+    ("settings", "nav_settings", "⚙️"),
 ]
 
 
 # ---------------------------------------------------------------- press animation
 
+# Icon-bearing buttons (sidebar nav items + the sidebar collapse toggle) get an
+# animated iconSize on top of the opacity dip below - a checked nav item (the
+# active page) rests slightly larger than the rest, hovering grows it further,
+# and pressing briefly shrinks it. Keyed by objectName since that's already
+# how these buttons are told apart from plain QPushButtons everywhere else in
+# the app (which have no icon and so no-op through _resting_icon_size below).
+ICON_SIZE_BASE = {"navItem": 20, "sidebarToggle": 16}
+ICON_SIZE_CHECKED_BONUS = 2
+ICON_SIZE_HOVER_BONUS = 3
+ICON_SIZE_PRESS_PENALTY = 3
+
+
+def _resting_icon_size(btn):
+    """None for buttons this effect doesn't apply to (no known base size)."""
+    base = ICON_SIZE_BASE.get(btn.objectName())
+    if base is None:
+        return None
+    if btn.isCheckable() and btn.isChecked():
+        base += ICON_SIZE_CHECKED_BONUS
+    return base
+
+
+def _animate_icon_size(btn, target_px, duration=120):
+    if btn.icon().isNull():
+        return
+    old = getattr(btn, "_icon_size_anim_ref", None)
+    if old is not None:
+        try:
+            old.stop()
+        except RuntimeError:
+            pass  # already finished and self-deleted (DeleteWhenStopped) - nothing to stop
+    anim = QPropertyAnimation(btn, b"iconSize", btn)
+    anim.setDuration(duration)
+    anim.setStartValue(btn.iconSize())
+    anim.setEndValue(QSize(target_px, target_px))
+    anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+    anim.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
+    btn._icon_size_anim_ref = anim  # keep alive until it finishes
+
+
+def settle_icon_size(btn):
+    """Animates (or, first time, just sets) `btn`'s icon back to its resting
+    size - i.e. the checked-bonus size if it's the active nav item, else the
+    plain base size. Called after any checked-state change and as the
+    hover/press effect's "return to normal" step."""
+    target = _resting_icon_size(btn)
+    if target is not None:
+        _animate_icon_size(btn, target)
+
+
 class _PressAnimator(QObject):
     """App-wide event filter that gives every QPushButton a quick opacity dip
     on press and a smooth return on release - QSS alone can't animate a
-    transition, so this is done as a tiny QPropertyAnimation per press."""
+    transition, so this is done as a tiny QPropertyAnimation per press. Also
+    drives the icon-grow/shrink effect above for icon-bearing nav-style
+    buttons (a no-op for every other QPushButton in the app)."""
 
     def eventFilter(self, obj, event):
         if isinstance(obj, QPushButton) and obj.isEnabled():
             etype = event.type()
             if etype == QEvent.Type.MouseButtonPress:
                 self._animate(obj, 0.55)
+                base = _resting_icon_size(obj)
+                if base is not None:
+                    _animate_icon_size(obj, max(10, base - ICON_SIZE_PRESS_PENALTY), duration=70)
             elif etype in (QEvent.Type.MouseButtonRelease, QEvent.Type.Leave):
                 self._animate(obj, 1.0)
+                settle_icon_size(obj)
+            elif etype == QEvent.Type.Enter:
+                base = _resting_icon_size(obj)
+                if base is not None:
+                    _animate_icon_size(obj, base + ICON_SIZE_HOVER_BONUS, duration=120)
         return False
 
     def _animate(self, widget, target):
@@ -136,6 +198,62 @@ def draw_gamepad_path(rect):
     path.cubicTo(pt(0.28, 0.0), pt(0.42, 0.02), pt(0.5, 0.10))
     path.closeSubpath()
     return path
+
+
+_EMOJI_ICON_CACHE = {}
+
+
+def render_emoji_icon(emoji, render_px=64):
+    """Renders a single emoji glyph onto a transparent square pixmap and
+    returns it as a QIcon - lets nav buttons show it via setIcon()+
+    setIconSize() (animatable, independent of the button's text font size)
+    instead of baking it into the button's text string. Rendered once at a
+    fixed high resolution and cached; setIconSize() downsamples from that
+    for whatever size is currently wanted, so the animated grow/shrink never
+    re-renders text mid-animation."""
+    cached = _EMOJI_ICON_CACHE.get(emoji)
+    if cached is not None:
+        return cached
+    pm = QPixmap(render_px, render_px)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    font = p.font()
+    font.setPointSize(int(render_px * 0.62))
+    p.setFont(font)
+    p.drawText(pm.rect(), Qt.AlignCenter, emoji)
+    p.end()
+    icon = QIcon(pm)
+    _EMOJI_ICON_CACHE[emoji] = icon
+    return icon
+
+
+def draw_sidebar_toggle_icon(color, render_px=64):
+    """Rectangle outline with a filled vertical strip along its left edge -
+    the classic "toggle side panel" glyph, hand-drawn since this app has no
+    icon-font/SVG asset pipeline (see make_app_icon/draw_gamepad_path for
+    the same approach elsewhere)."""
+    pm = QPixmap(render_px, render_px)
+    pm.fill(Qt.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+
+    margin = render_px * 0.14
+    rect = QRectF(margin, margin, render_px - 2 * margin, render_px - 2 * margin)
+    corner = render_px * 0.12
+
+    pen = QPen(QColor(color))
+    pen.setWidthF(render_px * 0.07)
+    p.setPen(pen)
+    p.setBrush(Qt.NoBrush)
+    p.drawRoundedRect(rect, corner, corner)
+
+    strip_w = rect.width() * 0.32
+    p.setPen(Qt.NoPen)
+    p.setBrush(QColor(color))
+    p.drawRoundedRect(QRectF(rect.x(), rect.y(), strip_w, rect.height()), corner * 0.5, corner * 0.5)
+    p.end()
+    return QIcon(pm)
 
 
 def make_app_icon(palette, status="ok"):
@@ -402,6 +520,89 @@ class ConnectionIndicator(QWidget):
 
 # ---------------------------------------------------------------- shared widgets
 
+class HoverGrowWrapper(QWidget):
+    """Transparent wrapper that reserves `grow_px` of space around its single
+    child on every side and, on hover, smoothly grows the child edge-to-edge
+    into that reserved space and back - a real size change (not a cosmetic
+    highlight), but one the surrounding layout never sees: this wrapper's
+    own sizeHint already includes the reserved margin (constant regardless
+    of hover state), and the child has no QLayout of its own managing it in
+    here (parented directly, positioned via setGeometry in resizeEvent),
+    so nothing else on the page ever has to move.
+
+    Works for both a fixed-size child (a button) and one that stretches to
+    fill its row/column (a slider, a settings card) - this wrapper copies
+    the child's own size policy, so adding the wrapper to a layout the same
+    way the child used to be added (same stretch factor/alignment) keeps
+    that behavior; resizeEvent() keeps the child filling whatever space the
+    wrapper is actually given, minus the current (animated) inset."""
+
+    def __init__(self, child, grow_px=4, parent=None):
+        super().__init__(parent)
+        self._child = child
+        self._grow_px = grow_px
+        self._inset = float(grow_px)
+        child.setParent(self)
+        child.installEventFilter(self)
+        self.setSizePolicy(child.sizePolicy())
+        self._anim = QPropertyAnimation(self, b"inset", self)
+        self._anim.setDuration(140)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._layout_child()
+
+    def sizeHint(self):
+        h = self._child.sizeHint()
+        return QSize(h.width() + 2 * self._grow_px, h.height() + 2 * self._grow_px)
+
+    def minimumSizeHint(self):
+        h = self._child.minimumSizeHint()
+        return QSize(h.width() + 2 * self._grow_px, h.height() + 2 * self._grow_px)
+
+    def resizeEvent(self, event):
+        self._layout_child()
+        super().resizeEvent(event)
+
+    def _layout_child(self):
+        inset = int(round(self._inset))
+        w = max(0, self.width() - 2 * inset)
+        h = max(0, self.height() - 2 * inset)
+        self._child.setGeometry(inset, inset, w, h)
+
+    def getInset(self):
+        return self._inset
+
+    def setInset(self, value):
+        self._inset = value
+        self._layout_child()
+
+    inset = Property(float, getInset, setInset)
+
+    def _animate_to(self, target):
+        try:
+            self._anim.stop()
+        except RuntimeError:
+            pass  # already finished and self-deleted - nothing to stop
+        self._anim.setStartValue(self._inset)
+        self._anim.setEndValue(target)
+        self._anim.start()
+
+    def enterEvent(self, event):
+        self._animate_to(0)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._animate_to(self._grow_px)
+        super().leaveEvent(event)
+
+    def eventFilter(self, obj, event):
+        if obj is self._child:
+            if event.type() == QEvent.Type.Enter:
+                self._animate_to(0)
+            elif event.type() == QEvent.Type.Leave:
+                self._animate_to(self._grow_px)
+        return False
+
+
 class ParamSlider(QWidget):
     def __init__(self, label, lo, hi, value, decimals=3, hint=None, on_change=None):
         super().__init__()
@@ -427,7 +628,7 @@ class ParamSlider(QWidget):
         self.slider.setRange(0, self.steps)
         self.slider.setValue(self._to_slider(value))
         self.slider.valueChanged.connect(self._changed)
-        layout.addWidget(self.slider)
+        layout.addWidget(HoverGrowWrapper(self.slider, grow_px=3))
 
         if hint:
             hint_label = QLabel(hint)
@@ -485,7 +686,7 @@ class IntSlider(QWidget):
         self.slider.setRange(lo, hi)
         self.slider.setValue(value)
         self.slider.valueChanged.connect(self._changed)
-        layout.addWidget(self.slider)
+        layout.addWidget(HoverGrowWrapper(self.slider, grow_px=3))
 
     def _changed(self, v):
         self.value_label.setText(str(v))
@@ -603,7 +804,7 @@ class HomePage(QWidget):
         self.active_label = QLabel(ref_label(state))
         self.active_label.setStyleSheet("font-size: 17px; font-weight: 700;")
         ac_layout.addWidget(self.active_label)
-        root.addWidget(active_card)
+        root.addWidget(HoverGrowWrapper(active_card, grow_px=6))
 
         trigger_card = QFrame()
         trigger_card.setObjectName("card")
@@ -624,7 +825,7 @@ class HomePage(QWidget):
             self.trigger_labels[side] = v
             tg_row.addLayout(col)
         tg_layout.addLayout(tg_row)
-        root.addWidget(trigger_card)
+        root.addWidget(HoverGrowWrapper(trigger_card, grow_px=6))
 
         row = QHBoxLayout()
         battery_card = QFrame()
@@ -636,7 +837,7 @@ class HomePage(QWidget):
         self.battery_label = QLabel(t("battery_unknown"))
         self.battery_label.setStyleSheet("font-size: 17px; font-weight: 700;")
         bc_layout.addWidget(self.battery_label)
-        row.addWidget(battery_card)
+        row.addWidget(HoverGrowWrapper(battery_card, grow_px=6))
 
         toggle_card = QFrame()
         toggle_card.setObjectName("card")
@@ -648,7 +849,7 @@ class HomePage(QWidget):
         self.toggle_btn.setObjectName("primary")
         self.toggle_btn.clicked.connect(toggle_cb)
         tc_layout.addWidget(self.toggle_btn)
-        row.addWidget(toggle_card)
+        row.addWidget(HoverGrowWrapper(toggle_card, grow_px=6))
         root.addLayout(row)
 
         meter_card = QFrame()
@@ -667,7 +868,7 @@ class HomePage(QWidget):
             bar.setRange(0, 100)
             r.addWidget(bar)
             m_layout.addLayout(r)
-        root.addWidget(meter_card)
+        root.addWidget(HoverGrowWrapper(meter_card, grow_px=6))
 
         root.addStretch(1)
 
@@ -744,7 +945,7 @@ class PresetsPage(QWidget):
             btn = QPushButton(t("btn_apply"))
             btn.clicked.connect(lambda _=False, p=pid: self.on_apply(p))
             layout.addWidget(btn)
-            outer.addWidget(card)
+            outer.addWidget(HoverGrowWrapper(card, grow_px=6))
             self.cards[pid] = card
 
         outer.addStretch(1)
@@ -984,11 +1185,11 @@ class TriggerColumn(QWidget):
             btn = QPushButton(t("btn_apply"))
             btn.clicked.connect(lambda _=False, p=pid: self.on_apply(p, self.side))
             card_layout.addWidget(btn)
-            layout.addWidget(card)
+            layout.addWidget(HoverGrowWrapper(card, grow_px=6))
             self.cards[pid] = card
 
         self.custom_card = CustomTriggerCard(state, side, on_apply_custom, on_off)
-        layout.addWidget(self.custom_card)
+        layout.addWidget(HoverGrowWrapper(self.custom_card, grow_px=6))
 
         layout.addStretch(1)
         self.refresh()
@@ -1069,7 +1270,7 @@ class ButtonHapticRow(QWidget):
         self.slider = QSlider(Qt.Horizontal)
         self.slider.setRange(0, 1000)
         self.slider.setValue(int(entry.get("strength", 0.4) * 1000))
-        strength_row.addWidget(self.slider, 1)
+        strength_row.addWidget(HoverGrowWrapper(self.slider, grow_px=3), 1)
         self.value_label = QLabel(f"{entry.get('strength', 0.4):.2f}")
         self.value_label.setProperty("role", "value")
         self.value_label.setFixedWidth(36)
@@ -1083,7 +1284,7 @@ class ButtonHapticRow(QWidget):
         self.hz_slider = QSlider(Qt.Horizontal)
         self.hz_slider.setRange(BUTTON_CLICK_HZ_MIN, BUTTON_CLICK_HZ_MAX)
         self.hz_slider.setValue(int(entry.get("click_hz", BUTTON_CLICK_HZ)))
-        hz_row.addWidget(self.hz_slider, 1)
+        hz_row.addWidget(HoverGrowWrapper(self.hz_slider, grow_px=3), 1)
         self.hz_value_label = QLabel(f"{int(entry.get('click_hz', BUTTON_CLICK_HZ))} Hz")
         self.hz_value_label.setProperty("role", "value")
         self.hz_value_label.setFixedWidth(50)
@@ -1503,24 +1704,37 @@ class MainWindow(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
+        self._sidebar_collapsed = self.state.get("sidebar_collapsed", False)
+
         self.sidebar = QWidget()
-        self.sidebar.setFixedWidth(200)
         self.sidebar.setStyleSheet(f"background: {theme.manager.palette['bg_sidebar']};")
         sb_layout = QVBoxLayout(self.sidebar)
         sb_layout.setContentsMargins(12, 20, 12, 20)
         sb_layout.setSpacing(4)
 
-        brand = QLabel("🎮 DS Haptics")
-        brand.setStyleSheet("font-size: 15px; font-weight: 700; padding: 0 8px 16px 8px;")
-        sb_layout.addWidget(brand)
+        top_row = QHBoxLayout()
+        top_row.setSpacing(10)
+        self.sidebar_toggle_btn = QPushButton()
+        self.sidebar_toggle_btn.setObjectName("sidebarToggle")
+        self.sidebar_toggle_btn.setIconSize(QSize(ICON_SIZE_BASE["sidebarToggle"], ICON_SIZE_BASE["sidebarToggle"]))
+        self.sidebar_toggle_btn.clicked.connect(self._toggle_sidebar_collapsed)
+        self._apply_sidebar_toggle_icon()
+        top_row.addWidget(self.sidebar_toggle_btn)
+        self.brand_text = QLabel()
+        self.brand_text.setStyleSheet("font-size: 15px; font-weight: 700;")
+        top_row.addWidget(self.brand_text, 1)
+        sb_layout.addLayout(top_row)
+        sb_layout.addSpacing(12)
 
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
         self.nav_buttons = {}
-        for key, _label_key in NAV_ITEMS:
+        for key, _label_key, icon_char in NAV_ITEMS:
             btn = QPushButton()
             btn.setObjectName("navItem")
             btn.setCheckable(True)
+            btn.setIcon(render_emoji_icon(icon_char))
+            btn.setIconSize(QSize(ICON_SIZE_BASE["navItem"], ICON_SIZE_BASE["navItem"]))
             btn.clicked.connect(lambda _=False, k=key: self.show_page(k))
             sb_layout.addWidget(btn)
             self.nav_group.addButton(btn)
@@ -1540,6 +1754,7 @@ class MainWindow(QWidget):
 
         self._build_pages()
         self._retranslate_sidebar()
+        self.sidebar.setFixedWidth(64 if self._sidebar_collapsed else 200)
         self.show_page("home")
 
         theme.manager.changed.connect(self._on_theme_changed)
@@ -1573,17 +1788,38 @@ class MainWindow(QWidget):
         self.home_page.set_enabled_text(self.enabled)
 
     def _retranslate_sidebar(self):
-        for key, label_key in NAV_ITEMS:
-            self.nav_buttons[key].setText(t(label_key))
-        self.autostart_check.setText(t("autostart_checkbox"))
+        collapsed = self._sidebar_collapsed
+        for key, label_key, _icon in NAV_ITEMS:
+            label = t(label_key)
+            btn = self.nav_buttons[key]
+            btn.setText("" if collapsed else label)
+            btn.setToolTip(label)
+        self.autostart_check.setText("" if collapsed else t("autostart_checkbox"))
+        self.autostart_check.setToolTip(t("autostart_checkbox"))
+        self.brand_text.setText(t("sidebar_menu_label"))
+        self.brand_text.setVisible(not collapsed)
+        self.sidebar_toggle_btn.setToolTip(
+            t("sidebar_expand_tooltip") if collapsed else t("sidebar_collapse_tooltip"))
+
+    def _toggle_sidebar_collapsed(self):
+        self._sidebar_collapsed = not self._sidebar_collapsed
+        self.sidebar.setFixedWidth(64 if self._sidebar_collapsed else 200)
+        self._retranslate_sidebar()
+        self.state["sidebar_collapsed"] = self._sidebar_collapsed
+        self.save_cb()
 
     def _apply_window_icon(self):
         self.setWindowIcon(make_app_icon(theme.manager.palette))
+
+    def _apply_sidebar_toggle_icon(self):
+        self.sidebar_toggle_btn.setIcon(draw_sidebar_toggle_icon(theme.manager.palette["fg_dim"]))
 
     def show_page(self, key):
         self._current_page_key = key
         self.stack.setCurrentWidget(self.pages[key])
         self.nav_buttons[key].setChecked(True)
+        for btn in self.nav_buttons.values():
+            settle_icon_size(btn)
 
     def _apply_params(self, new_params, ref):
         active = self.state["active"]
@@ -1690,6 +1926,7 @@ class MainWindow(QWidget):
     def _on_theme_changed(self):
         QApplication.instance().setStyleSheet(theme.manager.stylesheet())
         self._apply_window_icon()
+        self._apply_sidebar_toggle_icon()
         self.sidebar.setStyleSheet(f"background: {theme.manager.palette['bg_sidebar']};")
         self.home_page.gamepad.update()
         if hasattr(self, "on_theme_applied"):

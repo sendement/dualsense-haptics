@@ -41,6 +41,7 @@ def _default_state():
         "trigger_auto_reconnect": True,
         "theme": "system",
         "language": detect_system_language(),
+        "sidebar_collapsed": False,
     }
 
 
@@ -89,6 +90,7 @@ def load_state():
     state["trigger_auto_reconnect"] = raw.get("trigger_auto_reconnect", True)
     state["theme"] = raw.get("theme", "system")
     state["language"] = raw.get("language", detect_system_language())
+    state["sidebar_collapsed"] = raw.get("sidebar_collapsed", False)
     for name, params in state["profiles"].items():
         _merge_defaults(params, DEFAULT_CONFIG)
     return state

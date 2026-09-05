@@ -113,6 +113,11 @@ QPushButton#navItem {{
 }}
 QPushButton#navItem:checked {{ background: {p['bg_card']}; color: {p['fg']}; font-weight: 600; }}
 QPushButton#navItem:hover {{ color: {p['fg']}; }}
+QPushButton#sidebarToggle {{
+    background: transparent; border: none; border-radius: 8px;
+    padding: 10px 14px; font-size: 13px; color: {p['fg_dim']};
+}}
+QPushButton#sidebarToggle:hover {{ color: {p['fg']}; background: {p['bg_card']}; }}
 QFrame#card {{ background: {p['bg_card']}; border: 1px solid {p['border']}; border-radius: 12px; }}
 QFrame#cardActive {{ background: {p['bg_card']}; border: 1px solid {p['accent']}; border-radius: 12px; }}
 QListWidget {{ background: {p['bg_card']}; border: 1px solid {p['border']}; border-radius: 10px; padding: 4px; }}
