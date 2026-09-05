@@ -35,13 +35,13 @@ but it tracks impacts, bass, and voice noticeably better than a flat
 "vibrate on any sound" approach.
 
 There's also an **experimental, opt-in** literal-audio path over Bluetooth,
-built on independent reverse-engineering of the DualSense's Bluetooth HID
-haptics protocol by [egormanga/SAxense](https://github.com/egormanga/SAxense)
+using a built-in Python reimplementation ([`saxense_algo.py`](saxense_algo.py))
+of the DualSense's Bluetooth HID haptics protocol, independently
+reverse-engineered by [egormanga/SAxense](https://github.com/egormanga/SAxense)
 (much lower fidelity than the USB path — 8-bit, 3kHz combined — but still
 real PCM, not a synthesized envelope, and the same per-motor precision holds
-up in practice). It's off by default and needs the `SAxense` tool installed
-separately; see [Installation](#installation) and
-[Credits](#credits).
+up in practice). It's off by default, needs nothing installed separately —
+see [Credits](#credits).
 
 Adaptive trigger effects (L2/R2 resistance profiles) are applied via
 [`dualsensectl`](https://github.com/nowrep/dualsensectl), since they're
@@ -126,8 +126,6 @@ make it flaky too — see [Limitations](#limitations).
 - PulseAudio or PipeWire with `pipewire-pulse` (needs `parec` on `PATH`)
 - [`dualsensectl`](https://github.com/nowrep/dualsensectl) — only required
   for adaptive trigger effects; everything else works without it
-- [SAxense](https://github.com/egormanga/SAxense) — optional, only needed
-  for the experimental Bluetooth direct-audio mode (off by default)
 - A udev rule and small setcap'd helper — optional, only needed for
   **Trigger + Vibration Mix** (off by default); the Arch package installs
   both automatically, see [Installation](#installation)
@@ -204,24 +202,16 @@ git clone https://github.com/nowrep/dualsensectl.git
 cd dualsensectl && make && sudo make install
 ```
 
-### Optional: SAxense and Trigger + Vibration Mix
+### Optional: Trigger + Vibration Mix
 
-Neither is required for anything else in the app - only for **Advanced
-Settings → Direct Audio → Enable over Bluetooth (experimental)** and
-**Advanced Settings → Trigger + Vibration Mix** respectively. The Arch
-package's `.install` hook already sets up Trigger + Vibration Mix
-automatically; SAxense is never auto-installed anywhere, since it's a
-separate project.
+Not required for anything else in the app - only for **Advanced Settings →
+Trigger + Vibration Mix**. The Arch package's `.install` hook already sets
+this up automatically.
 
-The [setup wizard](#easiest-the-graphical-setup-wizard) above handles both
-of these too. To do it by hand instead:
+The [setup wizard](#easiest-the-graphical-setup-wizard) above handles this
+too. To do it by hand instead:
 
 ```sh
-# SAxense
-git clone https://github.com/egormanga/SAxense.git
-cd SAxense && make && sudo install -Dm755 SAxense /usr/local/bin/SAxense
-
-# Trigger + Vibration Mix
 sudo groupadd -r dualsense-haptics
 sudo usermod -aG dualsense-haptics "$USER"    # log out and back in after this
 sudo install -Dm755 packaging/src/dualsense-hidlock.c /tmp/dualsense-hidlock.c
@@ -321,12 +311,14 @@ tray icon's context menu to reopen, toggle vibration, or quit. Check
 
 - [`dualsensectl`](https://github.com/nowrep/dualsensectl) (nowrep) — used
   for adaptive trigger effects.
-- [SAxense](https://github.com/egormanga/SAxense) (egormanga/Sdore) — the
-  Bluetooth haptics-over-audio protocol used by the experimental direct
-  audio mode is their independent reverse-engineering research; see their
-  repo for details. Not bundled — installed and invoked separately (see
-  [Installation](#installation)), and used here strictly as an external
-  tool, unmodified.
+- [SAxense](https://github.com/egormanga/SAxense) (egormanga/Sdore,
+  [apps.sdore.me/SAxense](https://apps.sdore.me/SAxense)) — the Bluetooth
+  haptics-over-audio protocol used by the experimental direct audio mode is
+  their independent reverse-engineering research; see their repo for
+  details. [`saxense_algo.py`](saxense_algo.py) is a Python port of the
+  wire-protocol part of their (MPL-2.0) C source and stays under MPL 2.0
+  itself (the rest of this project is MIT — see [LICENSE](LICENSE)); nothing
+  else from their project is included.
 
 ## License
 

@@ -9,7 +9,6 @@ Runs in its own thread; `config` is a plain nested dict that the GUI can
 mutate directly for live tuning (each analysis chunk re-reads it, so no
 locking is needed - worst case one 20ms frame uses a slightly stale value).
 """
-import collections
 import fcntl
 import glob
 import math
@@ -18,7 +17,6 @@ import pwd
 import queue
 import re
 import select
-import shutil
 import struct
 import subprocess
 import termios
@@ -29,6 +27,7 @@ import evdev
 from evdev import ecodes, ff
 
 import bt_hid_proxy
+import saxense_algo
 
 RATE = 8000
 CHANNELS = 2
@@ -519,8 +518,8 @@ def find_dualsense_hidraw():
     (tagged HID_PHYS=bt_hid_proxy.CLONE_PHYS) - confirmed on real hardware
     that returning the clone's node here instead of the real device's
     accepts writes with no error while doing nothing, since the clone has
-    no controller behind it, mimicking a hung SAxense from the outside.
-    Only meaningful together with the SAxense binary - see
+    no controller behind it, mimicking a hung SAxense session from the
+    outside. Only meaningful together with _SaxenseWriter - see
     _session_bt_direct_audio."""
     for pid in DUALSENSE_PRODUCT_IDS:
         pattern = f"/sys/devices/virtual/misc/uhid/0005:{SONY_VENDOR_ID:04X}:{pid:04X}.*"
@@ -540,15 +539,16 @@ def find_dualsense_hidraw():
 
 def _write_with_timeout(fd, data, timeout_s):
     """os.write() with an overall deadline instead of blocking until the
-    peer drains all of `data`. Used by _AsyncStalePipeWriter so a downstream
-    stall (SAxense's own write blocked behind a congested Bluetooth link, or
-    simply not being scheduled during a system-wide freeze - confirmed on
-    real hardware to produce exactly this) can't leave its one writer
-    thread stuck inside a single write() call for as long as that stall
-    lasts - see the class docstring for what that used to cost. Returns
-    True once all of `data` made it out; False if the deadline passed
-    first, in which case the caller drops the rest exactly like a stale
-    item rather than resuming this same write mid-frame."""
+    peer drains all of `data`. Used by _SaxenseWriter (and
+    bt_hid_proxy.BtHidProxySession._write_real_async()) so a downstream
+    stall (a write blocked behind a congested Bluetooth link, or simply not
+    being scheduled during a system-wide freeze - confirmed on real
+    hardware to produce exactly this) can't leave a writer thread stuck
+    inside a single write() call for as long as that stall lasts - see the
+    caller's own docstring for what that used to cost. Returns True once
+    all of `data` made it out; False if the deadline passed first, in which
+    case the caller drops the rest exactly like a stale item rather than
+    resuming this same write mid-frame."""
     deadline = time.monotonic() + timeout_s
     view = memoryview(data)
     while view:
@@ -562,84 +562,123 @@ def _write_with_timeout(fd, data, timeout_s):
     return True
 
 
-class _AsyncStalePipeWriter:
-    """Non-blocking hand-off for writes into a subprocess's stdin pipe (used
-    for SAxense's), so a downstream stall in that *subprocess* - not
-    anything we control - can't block this session's own tick loop the
-    inline `proc.stdin.write(); proc.stdin.flush()` used to.
+class _SaxenseWriter:
+    """In-process replacement for spawning the external `SAxense` binary and
+    piping PCM into its stdin: accepts raw interleaved-stereo signed-8-bit
+    audio via write() (same call convention the old subprocess-based setup
+    used to hand off to SAxense's stdin) and, on its own background thread,
+    packages it into saxense_algo.SAMPLE_SIZE-byte chunks at
+    saxense_algo.TICK_INTERVAL_S cadence, writing each finished HID report
+    straight to the real/clone hidraw fd - reproducing exactly what the
+    actual SAxense.c binary did internally (see saxense_algo.py), just
+    without a child process or the OS pipe that used to sit between us and
+    it. Verified byte-for-byte against the real binary's own stdout for
+    identical input.
 
-    SAxense's own write of the finished HID report to the clone's hidraw is
-    just as exposed to a congested Bluetooth link as our own real-device
-    writes are (see bt_hid_proxy.BtHidProxySession._write_real_async(),
-    the original version of this exact pattern) - and when it's blocked
-    there, SAxense stops draining its stdin, which backs up the OS pipe
-    between us and it, which then blocks *our* write into that pipe once
-    it fills. Used to be a stable (not growing, but not recovering either)
-    roughly one-second added lag under sustained congestion, confirmed on
-    real hardware: one write-into-SAxense's-stdin call taking about that
-    long, repeating tick after tick, once SAxense's own downstream write
-    settled into that rhythm - the staleness check below only ever helped
-    items still sitting *in* the queue, not the one already in flight.
-    _write_with_timeout() bounds that single call too, so a stuck write now
-    gets abandoned (in favor of the newest pending chunk once the writer
-    thread is free) instead of holding up the lag's own recovery.
+    A standalone benchmark (not part of this repo) measured this loop's
+    scheduling jitter well under 1ms even with several GIL-contending
+    threads doing work heavier than this engine's other sessions actually
+    do concurrently - Python's own GIL is not the bottleneck here, since
+    every other session's per-tick work is I/O-bound (blocking reads/
+    writes/select() calls, all of which release the GIL) rather than tight
+    CPU-bound loops. This session's own inherent timing tolerance is no
+    worse than the original binary's: SAxense.c has no hardware real-time
+    guarantee either, its fread() blocks exactly as long as ours does when
+    audio is delayed upstream.
 
-    Same small age-bounded ring buffer as _write_real_async(): depth 3
-    absorbs one stuck tick's worth of jitter, and anything older than
-    stale_age_s gets skipped in favor of the newest chunk once the writer
-    thread is free, instead of working through a backlog in arrival order."""
+    Same bounded-write-with-timeout protection the old subprocess-pipe
+    hand-off gave writes into SAxense's stdin, now applied directly to the
+    real hidraw write instead - that's the actual stall-prone hop (a
+    congested Bluetooth link), one layer closer than before, since there's
+    no longer an intermediate process to absorb it on our behalf."""
 
-    def __init__(self, fd, depth=3, stale_age_s=0.2, write_timeout_s=0.05, label="saxense_writer"):
-        self._fd = fd
-        self._stale_age_s = stale_age_s
+    # A short leash on how much unconsumed PCM this holds before dropping
+    # the oldest of it - keeps latency bounded if the producer ever runs
+    # persistently faster than SAMPLE_RATE (clock drift, chunk_ms rounding),
+    # instead of quietly growing lag forever. ~100ms at BT_RATE.
+    _MAX_BUFFERED_BYTES = 640
+
+    def __init__(self, hidraw_fd, write_timeout_s=0.05, label="saxense_py"):
+        self._fd = hidraw_fd
         self._write_timeout_s = write_timeout_s
         self._label = label
-        self._pending = collections.deque(maxlen=depth)
+        self._buf = bytearray()
         self._lock = threading.Lock()
         self._available = threading.Event()
         self._stop = threading.Event()
+        self._counter = 0
+        self._error = None
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
 
     def write(self, data):
         with self._lock:
-            self._pending.append((time.monotonic(), data))
+            self._buf.extend(data)
+            if len(self._buf) > self._MAX_BUFFERED_BYTES:
+                del self._buf[:len(self._buf) - self._MAX_BUFFERED_BYTES]
         self._available.set()
 
     def stop(self):
         self._stop.set()
+        self._available.set()
+
+    def exited(self):
+        """Mirrors subprocess.Popen.poll() is not None - True once a hidraw
+        write has failed outright (device gone), so callers' existing
+        `if saxense.poll() is not None: raise RuntimeError(...)` checks
+        keep working unchanged against this in-process replacement."""
+        return self._error is not None
+
+    def _take_sample(self):
+        with self._lock:
+            if len(self._buf) < saxense_algo.SAMPLE_SIZE:
+                return None
+            sample = bytes(self._buf[:saxense_algo.SAMPLE_SIZE])
+            del self._buf[:saxense_algo.SAMPLE_SIZE]
+            if not self._buf:
+                self._available.clear()
+            return sample
 
     def _loop(self):
+        next_tick = time.monotonic()
         while not self._stop.is_set():
-            if not self._available.wait(timeout=0.2):
+            next_tick += saxense_algo.TICK_INTERVAL_S
+            sleep_for = next_tick - time.monotonic()
+            if sleep_for > 0:
+                time.sleep(sleep_for)
+            elif sleep_for < -0.5:
+                # Badly behind (thread starved, or audio was stalled for a
+                # while) - resync instead of bursting through a pile of
+                # backlogged ticks all at once.
+                next_tick = time.monotonic()
+
+            sample = self._take_sample()
+            if sample is None:
+                if self._stop.is_set():
+                    return
+                self._available.wait(timeout=0.2)
                 continue
-            with self._lock:
-                item = self._pending.popleft() if self._pending else None
-                if not self._pending:
-                    self._available.clear()
-            if item is None:
-                continue
-            enqueued_at, data = item
-            if time.monotonic() - enqueued_at > self._stale_age_s:
-                continue
+
+            report = saxense_algo.build_report(self._counter, sample)
+            self._counter = (self._counter + 1) & 0xFF
+
             try:
-                # Diagnostic only - confirms whether a stuck write is what
-                # actually rescued a given stall (see _write_with_timeout's
-                # docstring) rather than the stall just being mild enough to
-                # never get this far.
-                if not _write_with_timeout(self._fd, data, self._write_timeout_s):
+                if not _write_with_timeout(self._fd, report, self._write_timeout_s):
                     print(
                         f"[{self._label}] write timed out after "
                         f"{self._write_timeout_s * 1000:.0f}ms - dropped, "
-                        f"next tick resumes from the newest pending chunk",
+                        f"next tick resumes fresh",
                         flush=True,
                     )
+            except OSError as exc:
+                self._error = exc
+                return
             except Exception:
-                # Broad on purpose - a stale/closed pipe during teardown can
+                # Broad on purpose - a stale/closed fd during teardown can
                 # raise more than just OSError (e.g. ValueError on a fd
                 # already released), same tolerance as
                 # bt_hid_proxy.hidiocgfeature_bounded()'s background thread.
-                pass
+                return
 
 
 def _drain_stale_audio(stdout, chunk_bytes):
@@ -953,9 +992,9 @@ class HapticsEngine(threading.Thread):
     def _session(self, dev):
         """Dispatches to whichever haptics path applies to this connection.
         Direct audio over USB (see find_dualsense_sink()) is tried first
-        there. Direct audio over Bluetooth is opt-in and needs the external
-        `SAxense` tool (see find_dualsense_hidraw()). Anything else falls
-        back to the synthesized-envelope/FF_RUMBLE path."""
+        there. Direct audio over Bluetooth is opt-in, over the SAxense
+        protocol (see find_dualsense_hidraw() and _SaxenseWriter). Anything
+        else falls back to the synthesized-envelope/FF_RUMBLE path."""
         kind = connection_kind(dev)
         proxy_cfg = self.config.get("bt_hid_proxy", {})
         if not proxy_cfg.get("enabled", False):
@@ -1167,13 +1206,14 @@ class HapticsEngine(threading.Thread):
     def _session_bt_direct_audio(self, dev, hidraw_path):
         """Bluetooth, opt-in (direct_audio.bt_enabled): the same idea as
         _session_direct_audio, but over a community-reverse-engineered BT
-        HID haptics protocol instead of a USB Audio Class interface, via the
-        external `SAxense` tool (https://github.com/egormanga/SAxense -
-        research and protocol credit: egormanga/Sdore). Confirmed against
-        real hardware to keep the same per-motor precision as the USB path
-        despite the much lower bitrate (8-bit, combined 3kHz). SAxense paces
-        and formats the actual HID reports itself; this just feeds it gain-
-        staged PCM and points its output straight at the hidraw device."""
+        HID haptics protocol instead of a USB Audio Class interface - a
+        Python port (see saxense_algo.py) of SAxense
+        (https://github.com/egormanga/SAxense - research and protocol
+        credit: egormanga/Sdore). Confirmed against real hardware to keep
+        the same per-motor precision as the USB path despite the much lower
+        bitrate (8-bit, combined 3kHz). _SaxenseWriter paces and formats the
+        actual HID reports itself; this just feeds it gain-staged PCM and
+        points its output straight at the hidraw device."""
         print(f"[bt_direct_audio] entering, hidraw={hidraw_path}", flush=True)
         rate = BT_RATE
         # Fixed for this session's lifetime (reread on the next reconnect,
@@ -1193,10 +1233,7 @@ class HapticsEngine(threading.Thread):
         hidraw_file = os.fdopen(os.open(hidraw_path, os.O_WRONLY), "wb", buffering=0)
         audio_prefix = _audio_subprocess_prefix()
         parec = _spawn_stereo_parec(audio_prefix, rate)
-        saxense = subprocess.Popen(
-            ["SAxense"], stdin=subprocess.PIPE, stdout=hidraw_file, stderr=subprocess.DEVNULL,
-        )
-        saxense_writer = _AsyncStalePipeWriter(saxense.stdin.fileno(), label="bt_direct_audio")
+        saxense_writer = _SaxenseWriter(hidraw_file.fileno(), label="bt_direct_audio")
 
         button_strong_env = button_weak_env = 0.0
         held_keys = {}
@@ -1249,8 +1286,8 @@ class HapticsEngine(threading.Thread):
                     if parec.poll() is not None:
                         raise RuntimeError("audio capture (parec) exited")
                     continue
-                if saxense.poll() is not None:
-                    raise RuntimeError("SAxense exited")
+                if saxense_writer.exited():
+                    raise RuntimeError("SAxense writer exited")
 
                 cfg = self.config
                 gain = cfg.get("direct_audio", {}).get("gain", 5.0)
@@ -1363,19 +1400,13 @@ class HapticsEngine(threading.Thread):
         finally:
             saxense_writer.stop()
             try:
-                saxense.stdin.close()
+                parec.terminate()
             except Exception:
                 pass
-            for proc in (parec, saxense):
-                try:
-                    proc.terminate()
-                except Exception:
-                    pass
-            for proc in (parec, saxense):
-                try:
-                    proc.wait(timeout=1)
-                except Exception:
-                    pass
+            try:
+                parec.wait(timeout=1)
+            except Exception:
+                pass
             try:
                 hidraw_file.close()
             except Exception:
@@ -1437,8 +1468,7 @@ class HapticsEngine(threading.Thread):
 
     def _bt_should_use_saxense(self):
         direct_cfg = self.config.get("direct_audio", {})
-        return bool(direct_cfg.get("enabled", True) and direct_cfg.get("bt_enabled", False)
-                    and shutil.which("SAxense"))
+        return bool(direct_cfg.get("enabled", True) and direct_cfg.get("bt_enabled", False))
 
     def _should_restart_saxense_for_stall(self, dropped, stereo_bytes):
         """True once a stall (see PAREC_RESTART_STALL_CHUNKS) is large enough,
@@ -1622,15 +1652,16 @@ class HapticsEngine(threading.Thread):
         """Literal-PCM rumble through the proxy, same technique as
         _session_bt_direct_audio (see there for the DSP/protocol rationale),
         but pointed at the clone's hidraw instead of the real device's:
-        SAxense writes a distinct HID report (id 0x32, 141 bytes - see
-        SAxense.c) that never overlaps with the 0x31 report triggers/
-        lightbar/rumble live on, so BtHidProxySession's relay passes it
-        straight through to real hardware untouched once it arrives via the
-        clone. Steam's cached trigger effect is kept alive separately via
-        forward_trigger_only(), which - confirmed on real hardware - must
-        NOT also re-broadcast the game's cached rumble/HAPTICS_SELECT state:
-        doing so raced SAxense's own report for control of the motors and
-        drowned it out, even though they're technically distinct report IDs."""
+        _SaxenseWriter writes a distinct HID report (id 0x32, 142 bytes -
+        see saxense_algo.py) that never overlaps with the 0x31 report
+        triggers/lightbar/rumble live on, so BtHidProxySession's relay
+        passes it straight through to real hardware untouched once it
+        arrives via the clone. Steam's cached trigger effect is kept alive
+        separately via forward_trigger_only(), which - confirmed on real
+        hardware - must NOT also re-broadcast the game's cached rumble/
+        HAPTICS_SELECT state: doing so raced the haptics report for control
+        of the motors and drowned it out, even though they're technically
+        distinct report IDs."""
         rate = BT_RATE
         # See _session_bt_direct_audio's identical line for why this is
         # fixed for the session's lifetime rather than reread per tick.
@@ -1643,10 +1674,7 @@ class HapticsEngine(threading.Thread):
         hidraw_file = os.fdopen(os.open(clone_hidraw, os.O_WRONLY), "wb", buffering=0)
         audio_prefix = _audio_subprocess_prefix()
         parec = _spawn_stereo_parec(audio_prefix, rate)
-        saxense = subprocess.Popen(
-            ["SAxense"], stdin=subprocess.PIPE, stdout=hidraw_file, stderr=subprocess.DEVNULL,
-        )
-        saxense_writer = _AsyncStalePipeWriter(saxense.stdin.fileno(), label="bt_proxy_saxense")
+        saxense_writer = _SaxenseWriter(hidraw_file.fileno(), label="bt_proxy_saxense")
 
         button_strong_env = button_weak_env = 0.0
         held_keys = {}
@@ -1686,8 +1714,8 @@ class HapticsEngine(threading.Thread):
                         if parec.poll() is not None:
                             raise RuntimeError("audio capture (parec) exited")
                     else:
-                        if saxense.poll() is not None:
-                            raise RuntimeError("SAxense exited")
+                        if saxense_writer.exited():
+                            raise RuntimeError("SAxense writer exited")
 
                         cfg = self.config
                         gain = cfg.get("direct_audio", {}).get("gain", 5.0)
@@ -1887,8 +1915,6 @@ class HapticsEngine(threading.Thread):
                     self._emit_status("proxied")
         finally:
             saxense_writer.stop()
-            saxense.terminate()
-            saxense.wait()
             parec.terminate()
             parec.wait()
             hidraw_file.close()

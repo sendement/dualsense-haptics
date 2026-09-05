@@ -1,5 +1,12 @@
 MIT License
 
+This license applies to this project as a whole, with one exception:
+saxense_algo.py is a derivative of SAxense (https://github.com/egormanga/
+SAxense) by Sdore, which is licensed under the Mozilla Public License 2.0.
+That one file is licensed under MPL 2.0 instead (see its own header and
+LICENSES/MPL-2.0.txt) - everything else in this repository, including code
+that merely calls into that file, remains MIT as below.
+
 Copyright (c) 2026 sendement
 
 Permission is hereby granted, free of charge, to any person obtaining a copy

@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=DualSense Haptics - Optional Setup (download)
-Comment=Downloads and runs the setup wizard for Trigger + Vibration Mix and SAxense - no git clone needed
+Comment=Downloads and runs the setup wizard for Trigger + Vibration Mix - no git clone needed
 Exec=sh -c "curl -fsSL https://raw.githubusercontent.com/sendement/dualsense-haptics/main/packaging/dualsense-haptics-setup.sh -o /tmp/dualsense-haptics-setup.sh || wget -qO /tmp/dualsense-haptics-setup.sh https://raw.githubusercontent.com/sendement/dualsense-haptics/main/packaging/dualsense-haptics-setup.sh; chmod +x /tmp/dualsense-haptics-setup.sh && /tmp/dualsense-haptics-setup.sh; rm -f /tmp/dualsense-haptics-setup.sh"
 Icon=input-gaming
 Categories=Utility;Settings;

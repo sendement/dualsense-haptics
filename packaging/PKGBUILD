@@ -17,7 +17,9 @@ arch=('x86_64')
 # setcap for real.
 depends=('python' 'pyside6' 'python-evdev' 'libpulse' 'dualsensectl' 'libcap')
 makedepends=('gcc' 'libcap')
-license=('MIT')
+# saxense_algo.py is MPL 2.0 (a derivative of SAxense's own MPL-2.0 source);
+# everything else is MIT - see LICENSE.
+license=('MIT' 'MPL2')
 install=dualsense-haptics.install
 source=()
 sha256sums=()
@@ -35,6 +37,8 @@ package() {
   install -Dm755 "$startdir/dualsense-haptics.sh" "$pkgdir/usr/bin/dualsense-haptics"
   install -Dm644 "$startdir/dualsense-haptics.desktop" "$pkgdir/usr/share/applications/dualsense-haptics.desktop"
   install -Dm644 "$startdir/../LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 "$startdir/../LICENSES/MPL-2.0.txt" \
+    "$pkgdir/usr/share/licenses/$pkgname/LICENSES/MPL-2.0.txt"
 
   # Compile only - do NOT setcap here. package() runs under fakeroot, which
   # does not fake Linux capabilities/xattrs, so a setcap here would silently
