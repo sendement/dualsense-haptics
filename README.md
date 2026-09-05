@@ -206,10 +206,9 @@ cd dualsensectl && make && sudo make install
 
 Not required for anything else in the app - only for **Advanced Settings →
 Trigger + Vibration Mix**. The Arch package's `.install` hook already sets
-this up automatically.
-
-The [setup wizard](#easiest-the-graphical-setup-wizard) above handles this
-too. To do it by hand instead:
+this up automatically, and the [setup wizard](#easiest-the-graphical-setup-wizard)
+above does the same for other distros - it's bundled into installing the
+app itself there, not a separate step. To do it by hand instead:
 
 ```sh
 sudo groupadd -r dualsense-haptics
