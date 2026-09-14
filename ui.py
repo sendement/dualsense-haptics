@@ -1838,7 +1838,6 @@ class HomePage(QWidget):
         self.state = state
         self.engine_holder = engine_holder
         self.skin_cb = skin_cb
-        self.motor_level_state = (0.0, 0.0, 0.0)
         self.lightbar_rgb = self._configured_led_color()
 
         page_layout = QVBoxLayout(self)
@@ -2165,6 +2164,13 @@ class HomePage(QWidget):
                 _, rgb, held, feedback = snapshot
                 held = dict(held)
                 feedback = dict(feedback)
+                # Trigger squeeze never lands in button_haptics config, so
+                # the engine's own `feedback` never carries it - merge the
+                # held pressure in here so the feedback label mentions an
+                # engaged trigger preset the same way the glow already does.
+                for side, code in (('left', LEFT_TRIGGER_VIRTUAL_CODE), ('right', RIGHT_TRIGGER_VIRTUAL_CODE)):
+                    if self.state.get(f'trigger_preset_{side}') and held.get(code, 0) > 0:
+                        feedback[code] = max(feedback.get(code, 0), held[code])
         led_enabled = self.state['active'].get('led', {}).get('enabled', False)
         if not led_enabled:
             rgb = None
@@ -2180,7 +2186,6 @@ class HomePage(QWidget):
         names = [f'{t(key)} {round(feedback[code] * 100)}%' for key, code in BUTTON_OPTIONS if feedback.get(code, 0) > 0]
         self.feedback_label.setText(' · '.join(names) if names else t('dashboard_feedback_idle'))
         if engine is None:
-            self.motor_level_state = (time.monotonic(), 0.0, 0.0)
             self.strong_bar.setValue(0)
             self.weak_bar.setValue(0)
             self.gamepad.set_level(0)
@@ -2188,7 +2193,6 @@ class HomePage(QWidget):
             return
         try:
             strong, weak = engine.level_queue.get_nowait()
-            self.motor_level_state = (time.monotonic(), strong, weak)
             self.strong_bar.setValue(int(strong * 100))
             self.weak_bar.setValue(int(weak * 100))
             self.gamepad.set_level(max(strong, weak))
@@ -3632,12 +3636,10 @@ class ButtonHapticPage(QWidget):
 
     def _poll_feedback(self):
         held, feedback = {}, {}
-        engine = self.engine_holder()
-        if engine is not None:
-            snapshot = getattr(engine, 'visual_state', None)
-            if snapshot is not None and time.monotonic() - snapshot[0] < .5:
-                held = dict(snapshot[2])
-                feedback = dict(snapshot[3])
+        snapshot = fresh_visual_snapshot(self.engine_holder)
+        if snapshot is not None:
+            held = dict(snapshot[2])
+            feedback = dict(snapshot[3])
         visible_codes = set(self.rows)
         pressed = {code: max(0.0, min(1.0, float(value)))
                    for code, value in held.items() if code in visible_codes and value > 0}

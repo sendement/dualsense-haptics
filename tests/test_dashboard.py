@@ -375,6 +375,29 @@ def test_stale_feedback_and_led_color_are_cleared(dashboard):
     assert page.gamepad.feedback == {}
 
 
+def test_engaged_trigger_preset_shows_up_in_the_feedback_label(dashboard):
+    """The controller graphic glows for a squeezed trigger via `held` even
+    without a configured preset, but the feedback label's text only mirrors
+    that squeeze when a preset is actually engaged on that side - matching
+    the adaptive trigger's real behavior (unconfigured triggers do nothing,
+    so a text mention would be misleading)."""
+    from haptics_engine import LEFT_TRIGGER_VIRTUAL_CODE
+    from ui import t
+
+    window, engine, app = dashboard
+    page = window.home_page
+    held = {LEFT_TRIGGER_VIRTUAL_CODE: .8}
+    engine.visual_state = (time.monotonic(), None, held, {})
+
+    page._poll_meter()
+    assert page.gamepad.feedback == held
+    assert t('btn_left_trigger') not in page.feedback_label.text()
+
+    window.state['trigger_preset_left'] = 'hard_wall'
+    page._poll_meter()
+    assert f"{t('btn_left_trigger')} 80%" in page.feedback_label.text()
+
+
 def test_led_page_preview_uses_live_color_and_player_meter(dashboard):
     window, engine, app = dashboard
     page = window.led_page
