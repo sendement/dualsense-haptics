@@ -6,9 +6,10 @@ on Linux, over Bluetooth **or** USB.
 Windows has [DualSenseX](https://github.com/Paliverse/DualSenseX), which turns your
 system audio into rumble on the DualSense's motors. There's no DSX for Linux
 — this is that, built from scratch on top of the kernel's own force-feedback
-API, with a full GUI on top: presets, per-user profiles, adaptive trigger
-effects, per-button haptics, a system tray icon with battery %, autostart,
-light/dark/system theming, and 9 languages.
+API, with a full GUI on top: presets, per-user profiles, per-app audio
+binding, adaptive trigger effects, per-button haptics, a full LED preset
+system, a system tray icon with battery %, autostart, light/dark/system
+theming, and 9 languages.
 
 ![DualSense Haptics - home screen](docs/screenshot.png)
 
@@ -22,8 +23,8 @@ the PS5 itself uses internally — real PCM waveforms played straight onto
 the actuators, not a synthesized effect. This app detects that device and,
 by default, streams your live system audio (gain-staged and band-limited to
 what the motors reproduce well) directly onto it — literal audio-to-haptics,
-independently per motor. It can be tuned or turned off under **Advanced
-Settings → Direct Audio (USB)**.
+independently per motor. It can be tuned or turned off under
+**Experimental Features → Direct Audio (USB)**.
 
 Over **Bluetooth**, that USB Audio interface doesn't exist, so by default the
 app falls back to the same approach it always used: capturing your system's
@@ -52,7 +53,7 @@ with native adaptive-trigger support and keeps writing to it for as long as
 Steam runs — this app's own rumble still gets sent, but gets silently
 overwritten on the wire, so nothing reaches the motors even though trigger
 effects keep working. **Trigger + Vibration Mix** (desktop only, opt-in
-under **Advanced Settings**, off by default) fixes this: it clones the
+under **Experimental Features**, off by default) fixes this: it clones the
 controller via `/dev/uhid`, hides the real device from everyone else, and
 merges its own audio-reactive rumble into whatever Steam separately writes
 for triggers/lightbar before forwarding it to the real hardware — so both
@@ -62,16 +63,20 @@ automatically (see [Installation](#installation)); without them it falls
 back to the same "detect and report" behavior described in
 [Limitations](#limitations).
 
-**Immersive Lighting** (opt-in under **Advanced Settings**, or its own
-toggle in the Decky QAM panel, off by default) turns the lightbar and the
-5 player-indicator LEDs into a live bass/mid/treble meter — bass reads red,
-mid green, treble blue, blended by how loud each band is right now, with
-the 5 player LEDs working as a plain volume bar. On the Decky plugin (and
-on desktop whenever Trigger + Vibration Mix is off) it drives the
-controller's lightbar/player LEDs directly through the kernel's own LED
-class devices, no proxy needed; with Trigger + Vibration Mix on, it rides
-along inside that same proxy session instead. Either way it's extra
-Bluetooth traffic on top of everything else, so a congested BT channel can
+**LED Indication** (its own page on desktop, off by default) drives the
+lightbar and 5 player-indicator LEDs with a choice of presets: static
+color, breathing, rainbow, a running wave, heartbeat, battery-level, a
+custom color sequence you define yourself, and **Immersive** — the
+original audio-reactive mode, turning the lightbar and player LEDs into a
+live bass/mid/treble meter with configurable colors per band, blended by
+how loud each band is right now, with the 5 player LEDs working as a plain
+volume bar. The Decky plugin still only exposes Immersive for now, as its
+own toggle in the QAM panel. On the Decky plugin (and on desktop whenever
+Trigger + Vibration Mix is off) it drives the controller's lightbar/player
+LEDs directly through the kernel's own LED class devices, no proxy needed;
+with Trigger + Vibration Mix on, it rides along inside that same proxy
+session instead. Either way it's extra Bluetooth traffic on top of
+everything else, so a congested BT channel can
 make it flaky too — see [Limitations](#limitations).
 
 ## Features
@@ -86,7 +91,12 @@ make it flaky too — see [Limitations](#limitations).
   envelope followers with adjustable attack/release, sensitivity, contrast
   (gamma), and background noise suppression, independently for each motor.
 - **5 built-in presets** (Balanced, Cinema, Music, Voice & Podcasts, Maximum
-  Sensitivity) plus your own saved profiles.
+  Sensitivity) plus your own saved profiles, reorderable by drag-and-drop
+  under **Profiles**.
+- **Per-app audio binding** — by default the global profile captures all
+  system audio, but you can bind specific apps so only their sound drives
+  the haptics; if two bound apps are running at once it automatically falls
+  back to the global profile rather than guessing which one you meant.
 - **Adaptive triggers** — 7 resistance presets (soft resistance, hard wall,
   weapon trigger, bow, machine gun, ratchet, gallop), set independently per
   trigger (L2/R2), plus a **custom effect builder** to dial in the raw
@@ -100,9 +110,12 @@ make it flaky too — see [Limitations](#limitations).
 - **Per-button haptics** — pick any face button, bumper, trigger click,
   stick click, or the D-pad to buzz lightly while held, mixed with the audio
   vibration, at its own strength, from the motor on that side of the pad.
-- **Immersive Lighting** — the lightbar and player-indicator LEDs pulse and
-  color-shift with bass/mid/treble in real time (see
-  [How it works](#how-it-works)), on desktop and the Decky plugin alike.
+- **LED Indication** — a full preset system for the lightbar and 5
+  player-indicator LEDs: static color, breathing, rainbow, wave, heartbeat,
+  battery-level, a custom color sequence, and **Immersive**, the original
+  mode that pulses and color-shifts with bass/mid/treble in real time (see
+  [How it works](#how-it-works)); each preset has its own color and timing
+  controls. The Decky plugin currently ships Immersive only.
 - **Works over USB or Bluetooth**, with a badge on the home screen showing
   which one is active.
 - **System tray icon** with live connection status and battery percentage.
@@ -113,6 +126,14 @@ make it flaky too — see [Limitations](#limitations).
 - **Steam Deck / SteamOS**: a [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader)
   plugin (see [`deck-plugin/`](deck-plugin/)) puts the essentials in the
   Quick Access Menu — no need to leave Game Mode.
+
+## Screenshots
+
+| | |
+|---|---|
+| ![Presets](docs/screenshot-presets.png) Presets | ![Adaptive Triggers](docs/screenshot-triggers.png) Adaptive Triggers |
+| ![Button Vibration](docs/screenshot-button-vibration.png) Button Vibration | ![Vibration Settings](docs/screenshot-vibration-settings.png) Vibration Settings |
+| ![LED Indication](docs/screenshot-led.png) LED Indication | |
 
 ## Requirements
 
@@ -204,9 +225,10 @@ cd dualsensectl && make && sudo make install
 
 ### Optional: Trigger + Vibration Mix
 
-Not required for anything else in the app - only for **Advanced Settings →
-Trigger + Vibration Mix**. The Arch package's `.install` hook already sets
-this up automatically, and the [setup wizard](#easiest-the-graphical-setup-wizard)
+Not required for anything else in the app - only for **Experimental
+Features → Trigger + Vibration Mix**. The Arch package's `.install` hook
+already sets this up automatically, and the
+[setup wizard](#easiest-the-graphical-setup-wizard)
 above does the same for other distros - it's bundled into installing the
 app itself there, not a separate step. To do it by hand instead:
 
@@ -262,10 +284,11 @@ run build`, then re-run `install.sh`.
 Launch it (`dualsense-haptics` if installed via the package, or
 `python3 main.py` from source) and it opens on the **Home** page, showing
 connection status, active profile, trigger state, and battery. Pick a
-preset under **Presets**, tune things further under **Advanced Settings**,
-and save your own combination as a profile under **Profiles**. Adaptive
-trigger effects and per-button vibration live on their own pages. Theme and
-language are under **Settings**.
+preset under **Presets**, tune things further under **Vibration Settings**,
+and save your own combination as a profile under **Profiles** (drag to
+reorder). Adaptive triggers, per-button vibration, per-app audio binding,
+and LED presets each live on their own page. Theme and language are under
+**Settings**.
 
 Closing the window minimizes it to the tray rather than quitting — use the
 tray icon's context menu to reopen, toggle vibration, or quit. Check
@@ -275,7 +298,7 @@ tray icon's context menu to reopen, toggle vibration, or quit. Check
 ## Limitations
 
 - Over Bluetooth, by default haptic quality depends on the DSP tuning in
-  **Advanced Settings** rather than a 1:1 waveform — see
+  **Vibration Settings** rather than a 1:1 waveform — see
   [How it works](#how-it-works) for why, and for the experimental opt-in
   path that gets literal (if lower-fidelity) audio over Bluetooth too.
 - Vibration/button-haptics needs the controller to expose a force-feedback
