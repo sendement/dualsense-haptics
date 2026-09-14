@@ -385,6 +385,15 @@ def set_responsive_direction(width, *layouts, breakpoint=900):
             layout.setDirection(direction)
 
 
+def fresh_visual_snapshot(engine_holder, max_age=.5):
+    """Return one recent controller-input snapshot, or None when unavailable."""
+    engine = engine_holder() if engine_holder is not None else None
+    snapshot = getattr(engine, "visual_state", None) if engine is not None else None
+    if snapshot is None or time.monotonic() - snapshot[0] >= max_age:
+        return None
+    return snapshot
+
+
 def make_section_card(layout_cls=QVBoxLayout, margins=(16, 13, 16, 15), spacing=None):
     """Shared 'sectionCard' QFrame shell every dashboard/settings panel built
     by hand (QFrame + objectName + layout + margins); only the inner content
@@ -890,37 +899,49 @@ class GamepadWidget(QWidget):
 
 
 class ConnectionIndicator(QWidget):
-    """Two small pill badges - the transport actually in use (USB or
-    Bluetooth) lights up in the accent color, the other stays dim. Both are
-    dim while searching/disconnected."""
+    """Uniform rounded status/transport pills used by every page header."""
 
     def __init__(self):
         super().__init__()
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
+        self.status_label = QLabel(t("status_searching"))
         self.usb_label = QLabel("USB")
         self.bt_label = QLabel("Bluetooth")
+        for label in (self.status_label, self.usb_label, self.bt_label):
+            label.setAlignment(Qt.AlignCenter)
+            label.setFixedHeight(36)
+        self.status_label.setMinimumWidth(92)
+        layout.addWidget(self.status_label)
         layout.addWidget(self.usb_label)
         layout.addWidget(self.bt_label)
         self.kind = None
         self._styled = False
         self.set_connection(None)
 
-    def _pill_style(self, active):
+    def _pill_style(self, active=False, connected_status=False):
         pal = theme.manager.palette
         if active:
-            return (f"background: {pal['pressed']}; color: {pal['fg']}; "
-                    f"border: 1px solid {pal['accent']}; border-radius: 16px; "
-                    "padding: 7px 13px; font-size: 11px; font-weight: 700;")
-        return (f"background: transparent; color: {pal['fg_dim']}; border: 1px solid {pal['border']}; "
-                "border-radius: 16px; padding: 7px 13px; font-size: 11px;")
+            color, border, background, weight = (
+                pal["fg"], pal["accent"], pal["pressed"], 700)
+        elif connected_status:
+            color, border, background, weight = (
+                pal["good"], pal["border"], pal["hero_end"], 700)
+        else:
+            color, border, background, weight = (
+                pal["fg_dim"], pal["border"], pal["hero_end"], 500)
+        return (f"background: {background}; color: {color}; border: 1px solid {border}; "
+                f"border-radius: 17px; padding: 0 10px; font-size: 10px; font-weight: {weight};")
 
     def set_connection(self, kind, force=False):
         if self._styled and kind == self.kind and not force:
             return
         self.kind = kind
         self._styled = True
+        connected = kind in ("usb", "bluetooth")
+        self.status_label.setText(t("status_connected") if connected else t("status_searching"))
+        self.status_label.setStyleSheet(self._pill_style(connected_status=connected))
         self.usb_label.setStyleSheet(self._pill_style(kind == "usb"))
         self.bt_label.setStyleSheet(self._pill_style(kind == "bluetooth"))
 
@@ -1246,8 +1267,25 @@ class ReactiveControllerOutline(GamepadWidget):
     """Real controller render with independent surface pulses per motor."""
 
     MOTOR_ANCHORS = {
-        'bass': ((.285, .675), (.715, .675)),
-        'treble': ((.265, .355), (.735, .355)),
+        # Each physical motor owns both visual zones on its side. The upper
+        # point is cyan and the lower point purple, while their shared level
+        # still comes from the real left/right output channel.
+        'left': {
+            'upper': (.265, .355),
+            'lower': (.285, .675),
+        },
+        'right': {
+            'upper': (.735, .355),
+            'lower': (.715, .675),
+        },
+    }
+    MOTOR_COLORS = {
+        'upper': QColor('#18b8ff'),
+        'lower': QColor('#955cff'),
+    }
+    MOTOR_RADII = {
+        'upper': .056,
+        'lower': .068,
     }
 
     def __init__(self):
@@ -1271,14 +1309,17 @@ class ReactiveControllerOutline(GamepadWidget):
         p = QPainter(layer)
         p.setRenderHint(QPainter.Antialiasing)
         pulse = .90 + .10 * math.sin(self.phase * 1.8)
-        specs = (
-            (self.strong, self.MOTOR_ANCHORS['bass'], QColor('#955cff'), .068),
-            (self.weak, self.MOTOR_ANCHORS['treble'], QColor('#18b8ff'), .056),
+        motors = (
+            (self.strong, self.MOTOR_ANCHORS['left']),
+            (self.weak, self.MOTOR_ANCHORS['right']),
         )
-        for level, anchors, color, base_radius in specs:
-            energy = max(.025, level * pulse)
-            radius = scaled.width() * (base_radius + energy * .030)
-            for anchor_x, anchor_y in anchors:
+        for level, zones in motors:
+            energy = level * pulse
+            if energy <= .005:
+                continue
+            for zone, (anchor_x, anchor_y) in zones.items():
+                color = self.MOTOR_COLORS[zone]
+                radius = scaled.width() * (self.MOTOR_RADII[zone] + energy * .030)
                 center = QPointF(scaled.width() * anchor_x, scaled.height() * anchor_y)
                 glow = QRadialGradient(center, radius * 1.85)
                 glow.setColorAt(0, QColor(color.red(), color.green(), color.blue(), 45 + int(energy * 190)))
@@ -1304,13 +1345,18 @@ class ReactiveControllerOutline(GamepadWidget):
         x = (w - scaled.width()) / 2 + self._parallax.x()
         y = (h - scaled.height()) / 2 - h * .025 + self._parallax.y()
 
-        # A low purple reflection supports the two bass indicators in the
-        # grips. Treble stays visually above it on the controller surface.
+        # Each reflection follows its own motor as well. At zero there is
+        # no coloured residue that could look like activity on another side.
         floor_y = h * .86
-        for cx in (w * .40, w * .60):
-            level, color = self.strong, QColor('#8655ff')
+        floor_specs = (
+            (self.strong, w * .40, QColor('#8655ff')),
+            (self.weak, w * .60, QColor('#8655ff')),
+        )
+        for level, cx, color in floor_specs:
+            if level <= .005:
+                continue
             floor = QRadialGradient(QPointF(cx, floor_y), w * .28)
-            alpha = 25 + int(level * 90)
+            alpha = 12 + int(level * 103)
             floor.setColorAt(0, QColor(color.red(), color.green(), color.blue(), alpha))
             floor.setColorAt(1, QColor(color.red(), color.green(), color.blue(), 0))
             p.setPen(Qt.NoPen)
@@ -1320,7 +1366,9 @@ class ReactiveControllerOutline(GamepadWidget):
         self._ensure_glow_layers(scaled)
         if self._glow_layers:
             padding, layer = self._glow_layers[-1]
-            p.setOpacity(.07 + self.level * .10)
+            # A quiet, constant silhouette gives the controller depth; live
+            # energy is deliberately confined to the matching motor zones.
+            p.setOpacity(.07)
             p.drawPixmap(int(x - padding), int(y - padding), layer)
         p.setOpacity(1.0)
         p.drawPixmap(int(x), int(y), scaled)
@@ -1328,6 +1376,8 @@ class ReactiveControllerOutline(GamepadWidget):
             p.drawPixmap(int(x), int(y), self._black_detail_layer(scaled))
         p.drawPixmap(int(x), int(y), self._lightbar_layer(scaled))
         p.drawPixmap(int(x), int(y), self._motor_surface_layer(scaled))
+        if self.feedback:
+            p.drawPixmap(int(x), int(y), self._masked_feedback_layer(scaled))
         p.end()
 
 
@@ -2104,18 +2154,17 @@ class HomePage(QWidget):
 
     def _poll_meter(self):
         engine = self.engine_holder()
+        held = {}
         feedback = {}
         rgb = None
         fresh = False
         if engine is not None:
-            snapshot = getattr(engine, 'visual_state', None)
-            fresh = snapshot is not None and time.monotonic() - snapshot[0] < .5
-            if fresh:
+            snapshot = fresh_visual_snapshot(self.engine_holder)
+            fresh = snapshot is not None
+            if snapshot is not None:
                 _, rgb, held, feedback = snapshot
+                held = dict(held)
                 feedback = dict(feedback)
-                for side, code in (('left', LEFT_TRIGGER_VIRTUAL_CODE), ('right', RIGHT_TRIGGER_VIRTUAL_CODE)):
-                    if self.state.get(f'trigger_preset_{side}') and held.get(code, 0) > 0:
-                        feedback[code] = max(feedback.get(code, 0), held[code])
         led_enabled = self.state['active'].get('led', {}).get('enabled', False)
         if not led_enabled:
             rgb = None
@@ -2127,7 +2176,7 @@ class HomePage(QWidget):
         self.lightbar_state_label.setText(('ON' if fresh and rgb is not None else 'ON · —') if led_enabled else 'OFF')
         self.lightbar_card.set_color(rgb)
         self.lightbar_dots.set_color(rgb)
-        self.gamepad.set_feedback(feedback)
+        self.gamepad.set_feedback(held)
         names = [f'{t(key)} {round(feedback[code] * 100)}%' for key, code in BUTTON_OPTIONS if feedback.get(code, 0) > 0]
         self.feedback_label.setText(' · '.join(names) if names else t('dashboard_feedback_idle'))
         if engine is None:
@@ -2698,23 +2747,29 @@ class ProfilesPage(QWidget):
         divider.setFrameShape(QFrame.HLine)
         body.addWidget(divider)
         self.metric_bars = {}
-        for key, label in (
+        self.metric_grid = QGridLayout()
+        self.metric_grid.setContentsMargins(0, 0, 0, 0)
+        self.metric_grid.setHorizontalSpacing(12)
+        self.metric_grid.setVerticalSpacing(8)
+        for row_index, (key, label) in enumerate((
             ("vibration", t("home_vibration")),
             ("bass", t("label_bass")),
             ("treble", t("label_treble")),
-        ):
-            row = QHBoxLayout()
-            row.addWidget(QLabel(label))
+        )):
+            metric_label = QLabel(label)
+            self.metric_grid.addWidget(metric_label, row_index, 0)
             bar = QProgressBar()
             bar.setRange(0, 100)
             bar.setTextVisible(False)
-            row.addWidget(bar, 1)
+            self.metric_grid.addWidget(bar, row_index, 1)
             value = QLabel()
             value.setProperty("role", "value")
             value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            row.addWidget(value)
-            body.addLayout(row)
+            value.setMinimumWidth(38)
+            self.metric_grid.addWidget(value, row_index, 2)
             self.metric_bars[key] = (bar, value)
+        self.metric_grid.setColumnStretch(1, 1)
+        body.addLayout(self.metric_grid)
 
         body.addStretch(1)
         self.apply_btn = QPushButton("▶  " + t("btn_apply"))
@@ -3192,11 +3247,12 @@ class TriggerColumn(QWidget):
 
 class TriggersPage(QWidget):
     def __init__(self, state, on_apply, on_off, on_apply_custom, connection_getter=None,
-                 light_color_getter=None):
+                 light_color_getter=None, engine_holder=None):
         super().__init__()
         self.state = state
         self.connection_getter = connection_getter or (lambda: None)
         self.light_color_getter = light_color_getter or (lambda: DEFAULT_GAMEPAD_LIGHT)
+        self.engine_holder = engine_holder or (lambda: None)
 
         page_layout = QVBoxLayout(self)
         page_layout.setContentsMargins(0, 0, 0, 0)
@@ -3276,7 +3332,7 @@ class TriggersPage(QWidget):
 
         self.connection_timer = QTimer(self)
         self.connection_timer.timeout.connect(self._refresh_connection)
-        self.connection_timer.start(250)
+        self.connection_timer.start(60)
         self._refresh_connection()
 
     def resizeEvent(self, event):
@@ -3286,6 +3342,8 @@ class TriggersPage(QWidget):
     def _refresh_connection(self):
         self.connection_indicator.set_connection(self.connection_getter())
         self.hero_gamepad.set_light_color(self.light_color_getter())
+        snapshot = fresh_visual_snapshot(self.engine_holder)
+        self.hero_gamepad.set_feedback(dict(snapshot[2]) if snapshot is not None else {})
 
     def _toggle_auto(self, checked):
         self.state["trigger_auto_reconnect"] = checked
@@ -3634,11 +3692,14 @@ class ButtonHapticPage(QWidget):
 
 class AdvancedPage(QWidget):
     def __init__(self, state, on_change, motor_level_getter=None, connection_getter=None,
-                 light_color_getter=None):
+                 light_color_getter=None, engine_holder=None):
         super().__init__()
         self.state = state
         self.on_change = on_change
         self.motor_level_getter = motor_level_getter or (lambda: (0.0, 0.0, 0.0))
+        self.engine_holder = engine_holder or (lambda: None)
+        self._motor_engine = None
+        self._motor_level_state = (0.0, 0.0, 0.0)
         self.connection_getter = connection_getter or (lambda: None)
         self.light_color_getter = light_color_getter or (lambda: DEFAULT_GAMEPAD_LIGHT)
         active = state["active"]
@@ -3806,15 +3867,15 @@ class AdvancedPage(QWidget):
         super().resizeEvent(event)
 
     def _poll_preview(self):
-        try:
-            stamp, strong, weak = self.motor_level_getter()
-        except (TypeError, ValueError):
-            stamp, strong, weak = 0.0, 0.0, 0.0
+        stamp, strong, weak = self._read_motor_levels()
         if not stamp or time.monotonic() - stamp > .5:
             strong, weak = 0.0, 0.0
         strong = max(0.0, min(1.0, float(strong)))
         weak = max(0.0, min(1.0, float(weak)))
         self.controller_outline.set_levels(strong, weak)
+        snapshot = fresh_visual_snapshot(self.engine_holder)
+        self.controller_outline.set_feedback(
+            dict(snapshot[2]) if snapshot is not None else {})
         self.live_wave.set_levels(strong, weak)
         bass_percent, treble_percent = round(strong * 100), round(weak * 100)
         self.hero_bass_bar.setValue(bass_percent)
@@ -3825,6 +3886,25 @@ class AdvancedPage(QWidget):
         self.treble_value.setText(f"{t('label_treble')}  {treble_percent}%")
         self.controller_outline.set_light_color(self.light_color_getter())
         self.connection_indicator.set_connection(self.connection_getter())
+
+    def _read_motor_levels(self):
+        """Consume the latest motor sample on this active page directly."""
+        engine = self.engine_holder()
+        if engine is None:
+            try:
+                return self.motor_level_getter()
+            except (TypeError, ValueError):
+                return 0.0, 0.0, 0.0
+        if engine is not self._motor_engine:
+            self._motor_engine = engine
+            self._motor_level_state = (0.0, 0.0, 0.0)
+        try:
+            while True:
+                strong, weak = engine.level_queue.get_nowait()
+                self._motor_level_state = (time.monotonic(), strong, weak)
+        except queue.Empty:
+            pass
+        return self._motor_level_state
 
     def _set_gain(self, v):
         self.state["active"]["master_gain"] = v
@@ -4114,12 +4194,11 @@ class LedPage(QWidget):
         led_cfg = self._led_cfg()
         enabled = self.led_visualizer_check.isChecked()
         preset_id = led_cfg.get("preset", "immersive")
+        snapshot = fresh_visual_snapshot(self.engine_holder)
         rgb = None
         player_level = 0.0
         if enabled and preset_id == "immersive":
-            engine = self.engine_holder()
-            snapshot = getattr(engine, 'visual_state', None) if engine is not None else None
-            if snapshot is not None and time.monotonic() - snapshot[0] < .5:
+            if snapshot is not None:
                 rgb = snapshot[1]
                 player_level = max(rgb) / 255 if rgb is not None else 0.0
         elif enabled:
@@ -4132,6 +4211,7 @@ class LedPage(QWidget):
         display_rgb = rgb if rgb is not None else (tuple(fallback) if enabled else OFF_GAMEPAD_LIGHT)
         self.preview_scene.set_color(display_rgb)
         self.gamepad.set_light_color(display_rgb)
+        self.gamepad.set_feedback(dict(snapshot[2]) if snapshot is not None else {})
         if enabled and preset_id == "immersive" and rgb is None:
             player_level = 0.16
         self.player_meter.set_level(player_level)
@@ -5400,16 +5480,18 @@ class MainWindow(QWidget):
         self.triggers_page = TriggersPage(
             self.state, self._apply_trigger_preset, self._turn_off_triggers, self._apply_custom_trigger,
             lambda: self.home_page.connection_indicator.kind,
-            lambda: self.home_page.lightbar_rgb)
+            lambda: self.home_page.lightbar_rgb,
+            self.engine_holder)
         self.button_haptic_page = ButtonHapticPage(
             self.state, self.save_cb, self.engine_holder,
             lambda: self.home_page.connection_indicator.kind,
             lambda: self.home_page.lightbar_rgb)
         self.advanced_page = AdvancedPage(
             self.state, self._on_advanced_change,
-            lambda: self.home_page.motor_level_state,
+            None,
             lambda: self.home_page.connection_indicator.kind,
-            lambda: self.home_page.lightbar_rgb)
+            lambda: self.home_page.lightbar_rgb,
+            self.engine_holder)
         self.led_page = LedPage(
             self.state, self._on_advanced_change, self.engine_holder,
             lambda: self.home_page.connection_indicator.kind)
@@ -5515,7 +5597,8 @@ class MainWindow(QWidget):
         engine = self.engine_holder()
         if engine is not None:
             engine.visual_feedback_enabled = bool(
-                window_active and self._current_page_key in {"home", "button_haptic", "led"})
+                window_active and self._current_page_key in {
+                    "home", "triggers", "button_haptic", "advanced", "led"})
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -5677,6 +5760,7 @@ class MainWindow(QWidget):
         else:
             self.start_engine_cb()
             self.enabled = True
+        self._update_page_activity()
         self.home_page.set_enabled_text(self.enabled)
         if hasattr(self, "on_toggle"):
             self.on_toggle(self.enabled)

@@ -330,6 +330,11 @@ def test_only_visible_page_timers_and_telemetry_are_active(dashboard):
     assert not window.profiles_page.connection_timer.isActive()
     assert engine.visual_feedback_enabled is True
 
+    for key in ('triggers', 'advanced'):
+        window.show_page(key)
+        app.processEvents()
+        assert engine.visual_feedback_enabled is True
+
     window.hide()
     app.processEvents()
     assert not any(timer.isActive() for timers in window._managed_page_timers.values()
@@ -340,11 +345,15 @@ def test_only_visible_page_timers_and_telemetry_are_active(dashboard):
 def test_visual_pages_tolerate_missing_engine(dashboard):
     window, engine, app = dashboard
     window.home_page.engine_holder = lambda: None
+    window.triggers_page.engine_holder = lambda: None
     window.button_haptic_page.engine_holder = lambda: None
+    window.advanced_page.engine_holder = lambda: None
     window.led_page.engine_holder = lambda: None
 
     window.home_page._poll_meter()
+    window.triggers_page._refresh_connection()
     window.button_haptic_page._poll_feedback()
+    window.advanced_page._poll_preview()
     window.led_page._poll_preview()
 
     assert window.home_page.gamepad.level == 0
@@ -355,7 +364,7 @@ def test_stale_feedback_and_led_color_are_cleared(dashboard):
     window, engine, app = dashboard
     page = window.home_page
     window.state['active']['led']['enabled'] = True
-    engine.visual_state = (time.monotonic(), (12, 80, 220), {}, {ec.BTN_SOUTH: .8})
+    engine.visual_state = (time.monotonic(), (12, 80, 220), {ec.BTN_SOUTH: .8}, {ec.BTN_SOUTH: .8})
     page._poll_meter()
     assert page.lightbar_card.target == (12, 80, 220)
     assert page.gamepad.feedback == {ec.BTN_SOUTH: .8}
@@ -629,11 +638,16 @@ def test_trigger_columns_adapt_without_horizontal_scrolling(dashboard, width, st
 
 
 def test_vibration_page_live_outline_uses_shared_motor_telemetry(dashboard):
+    from PySide6.QtTest import QTest
+
     window, engine, app = dashboard
     page = window.advanced_page
-    window.home_page.motor_level_state = (time.monotonic(), .82, .31)
+    window.show()
+    window.show_page('advanced')
+    app.processEvents()
+    engine.level_queue.put_nowait((.82, .31))
     window.home_page.connection_indicator.set_connection('bluetooth')
-    page._poll_preview()
+    QTest.qWait(90)
     assert page.controller_outline.strong == pytest.approx(.82)
     assert page.controller_outline.weak == pytest.approx(.31)
     assert page.live_wave.strong == pytest.approx(.82)
@@ -642,10 +656,63 @@ def test_vibration_page_live_outline_uses_shared_motor_telemetry(dashboard):
     assert page.hero_treble_bar.value() == 31
     assert page.connection_indicator.kind == 'bluetooth'
 
-    window.home_page.motor_level_state = (time.monotonic() - 1, 1, 1)
+    page._motor_level_state = (time.monotonic() - 1, 1, 1)
     page._poll_preview()
     assert page.controller_outline.strong == 0
     assert page.controller_outline.weak == 0
+
+
+def test_pressed_button_glow_is_live_on_every_controller_preview(dashboard):
+    window, engine, app = dashboard
+    held = {DPAD_VIRTUAL_CODE: 1.0, ec.BTN_SOUTH: .72}
+
+    polls = (
+        ('home', window.home_page._poll_meter, window.home_page.gamepad),
+        ('triggers', window.triggers_page._refresh_connection, window.triggers_page.hero_gamepad),
+        ('button_haptic', window.button_haptic_page._poll_feedback, window.button_haptic_page.gamepad),
+        ('advanced', window.advanced_page._poll_preview, window.advanced_page.controller_outline),
+        ('led', window.led_page._poll_preview, window.led_page.gamepad),
+    )
+    window.show()
+    for key, poll, controller in polls:
+        window.show_page(key)
+        engine.visual_state = (time.monotonic(), None, held, {})
+        poll()
+        assert controller.feedback == held
+
+    engine.visual_state = (time.monotonic() - 1, None, held, {})
+    window.led_page._poll_preview()
+    assert window.led_page.gamepad.feedback == {}
+
+
+def test_restarted_engine_reenables_visible_page_telemetry(dashboard):
+    window, old_engine, app = dashboard
+    box = {'engine': old_engine}
+    window.engine_holder = lambda: box['engine']
+    window.stop_engine_cb = lambda: box.update(engine=None)
+    window.start_engine_cb = lambda: box.update(engine=HapticsEngine(window.state['active']))
+    window.show()
+    window.show_page('home')
+    app.processEvents()
+    assert old_engine.visual_feedback_enabled is True
+
+    window._toggle()
+    window._toggle()
+
+    assert box['engine'] is not old_engine
+    assert box['engine'].visual_feedback_enabled is True
+
+
+def test_connection_indicator_uses_one_rounded_pill_language(dashboard):
+    import ui
+
+    window, engine, app = dashboard
+    indicator = window.home_page.connection_indicator
+    indicator.set_connection('usb')
+    assert indicator.status_label.text() == ui.t('status_connected')
+    assert indicator.status_label.height() == indicator.usb_label.height() == indicator.bt_label.height()
+    assert all('border-radius: 17px' in label.styleSheet()
+               for label in (indicator.status_label, indicator.usb_label, indicator.bt_label))
 
 
 def test_vibration_motor_pulses_stay_on_real_controller_surface(dashboard):
@@ -654,23 +721,52 @@ def test_vibration_motor_pulses_stay_on_real_controller_surface(dashboard):
     window, engine, app = dashboard
     controller = window.advanced_page.controller_outline
     assert isinstance(controller, GamepadWidget)
-    bass = controller.MOTOR_ANCHORS['bass']
-    treble = controller.MOTOR_ANCHORS['treble']
-    assert len(bass) == len(treble) == 2
-    assert bass[0][0] < .5 < bass[1][0]
-    assert treble[0][0] < .5 < treble[1][0]
-    assert all(bass_y > treble_y for (_, bass_y), (_, treble_y) in zip(bass, treble))
-    assert bass[0][0] + bass[1][0] == pytest.approx(1)
-    assert treble[0][0] + treble[1][0] == pytest.approx(1)
-    controller.set_levels(.8, .6)
+    left = controller.MOTOR_ANCHORS['left']
+    right = controller.MOTOR_ANCHORS['right']
+    assert set(left) == set(right) == {'upper', 'lower'}
+    assert all(point[0] < .5 for point in left.values())
+    assert all(point[0] > .5 for point in right.values())
+    assert left['upper'][1] < left['lower'][1]
+    assert right['upper'][1] < right['lower'][1]
     source = controller._finished_image().scaled(306, 204, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-    layer = controller._motor_surface_layer(source).toImage()
     mask = source.toImage()
-    assert any(layer.pixelColor(x, y).alpha() > 0
-               for y in range(layer.height()) for x in range(layer.width()))
-    assert all(layer.pixelColor(x, y).alpha() == 0
-               for y in range(layer.height()) for x in range(layer.width())
-               if mask.pixelColor(x, y).alpha() == 0)
+    points = {
+        side: {
+            zone: (round(source.width() * point[0]), round(source.height() * point[1]))
+            for zone, point in zones.items()
+        }
+        for side, zones in controller.MOTOR_ANCHORS.items()
+    }
+    for levels, active, inactive in (((.8, 0), 'left', 'right'), ((0, .6), 'right', 'left')):
+        controller.set_levels(*levels)
+        layer = controller._motor_surface_layer(source).toImage()
+        assert all(layer.pixelColor(*point).alpha() > 0 for point in points[active].values())
+        assert all(layer.pixelColor(*point).alpha() == 0 for point in points[inactive].values())
+        assert all(layer.pixelColor(x, y).alpha() == 0
+                   for y in range(layer.height()) for x in range(layer.width())
+                   if mask.pixelColor(x, y).alpha() == 0)
+
+    assert controller.MOTOR_COLORS['upper'].name() == '#18b8ff'
+    assert controller.MOTOR_COLORS['lower'].name() == '#955cff'
+
+
+def test_profile_detail_metric_bars_share_one_start_column(dashboard):
+    from PySide6.QtCore import QPoint
+
+    window, engine, app = dashboard
+    page = window.profiles_page
+    window.state['profiles']['alignment'] = copy.deepcopy(window.state['active'])
+    page.refresh()
+    page._select_profile('alignment')
+    window.show()
+    window.show_page('profiles')
+    app.processEvents()
+
+    starts = {
+        bar.mapTo(page.details_body, QPoint(0, 0)).x()
+        for bar, _value in page.metric_bars.values()
+    }
+    assert len(starts) == 1
 
 
 def test_button_page_glows_live_pressed_controls_and_clears_stale_state(dashboard):
