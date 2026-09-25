@@ -36,6 +36,27 @@ _SUBSCRIBE_POLL_S = 0.2
 _FALLBACK_RECOMPUTE_S = 2.0
 _JOIN_TIMEOUT_S = 2.0
 
+# How long the tap outlives the selected app's last stream before it's torn
+# down. Games and browsers routinely close and reopen their stream within a
+# second or two (device reset, loading screen, tab switch); tearing the tap
+# down and rebuilding it each time churned a null-sink + loopback pair per
+# flap (confirmed with a synthetic flapping stream: 14 load/unload calls for
+# 6 flaps) and flipped the engine's capture source with each one, restarting
+# its audio session every time.
+_TEARDOWN_GRACE_S = 4.0
+
+# Bursts of sink-input events (a game starting opens several streams at
+# once) are coalesced: at most one recompute per this interval.
+_MIN_RECOMPUTE_INTERVAL_S = 0.15
+
+# How many times teardown re-checks the tap for streams that landed on it
+# (e.g. stream-restore placing a fresh stream there) before unloading.
+_TEARDOWN_RECHECKS = 3
+
+
+def _log(message):
+    print(f"[app_audio_binding] {message}", flush=True)
+
 _THREAD = None
 _LOCK = threading.Lock()
 
@@ -149,13 +170,28 @@ def _create_tap_modules():
 
 
 def _revert_any_stray_routing_and_teardown():
-    tap_indices = set(_all_tap_sink_indices())
-    if tap_indices:
-        for si in _list_json("sink-inputs"):
-            if si.get("sink") in tap_indices:
-                idx = si.get("index")
-                if idx is not None:
-                    _run_pactl("move-sink-input", str(idx), "@DEFAULT_SINK@")
+    """Moves everything off the tap and unloads it. Re-checks after moving:
+    unloading a sink that still has a stream attached makes PipeWire kill
+    that stream, which some clients (Chromium-based apps especially) handle
+    badly - and a fresh stream can land on the tap between the move and the
+    unload (module-stream-restore re-places a stream where it last was), so
+    one pass isn't enough. Only unloads once a check finds the tap empty (or
+    the re-check budget is spent)."""
+    clean = False
+    for _ in range(_TEARDOWN_RECHECKS):
+        tap_indices = set(_all_tap_sink_indices())
+        stragglers = ([si for si in _list_json("sink-inputs") if si.get("sink") in tap_indices]
+                      if tap_indices else [])
+        if not stragglers:
+            clean = True
+            break
+        for si in stragglers:
+            idx = si.get("index")
+            if idx is not None:
+                _run_pactl("move-sink-input", str(idx), "@DEFAULT_SINK@")
+        time.sleep(0.05)
+    if not clean:
+        _log("tap still had streams after re-checks - unloading anyway")
     _teardown_tap_modules()
 
 
@@ -175,6 +211,9 @@ class _AppAudioBindingThread(threading.Thread):
         self.capture_source_box = capture_source_box
         self._stop = threading.Event()
         self._narrowed_app = None
+        # monotonic time the narrowed app's last stream disappeared (None
+        # while it has one) - see _TEARDOWN_GRACE_S.
+        self._gone_since = None
 
     def stop(self):
         self._stop.set()
@@ -192,7 +231,9 @@ class _AppAudioBindingThread(threading.Thread):
             proc = None
         try:
             self._recompute()
-            next_fallback = time.monotonic() + _FALLBACK_RECOMPUTE_S
+            last_recompute = time.monotonic()
+            next_fallback = last_recompute + _FALLBACK_RECOMPUTE_S
+            dirty = False
             while not self._stop.is_set():
                 if proc is not None and proc.stdout is not None:
                     ready, _, _ = select.select([proc.stdout], [], [], _SUBSCRIBE_POLL_S)
@@ -203,12 +244,18 @@ class _AppAudioBindingThread(threading.Thread):
                             # things working without it, just less snappy.
                             proc = None
                         elif "sink-input" in line:
-                            self._recompute()
+                            dirty = True
                 else:
                     self._stop.wait(_SUBSCRIBE_POLL_S)
-                if time.monotonic() >= next_fallback:
+                now = time.monotonic()
+                # A burst of events (a game opening several streams at once)
+                # collapses into one recompute; the poll timeout above
+                # guarantees the loop comes back to service a deferred one.
+                if (dirty and now - last_recompute >= _MIN_RECOMPUTE_INTERVAL_S) or now >= next_fallback:
                     self._recompute()
-                    next_fallback = time.monotonic() + _FALLBACK_RECOMPUTE_S
+                    dirty = False
+                    last_recompute = time.monotonic()
+                    next_fallback = last_recompute + _FALLBACK_RECOMPUTE_S
         finally:
             if proc is not None:
                 try:
@@ -221,18 +268,38 @@ class _AppAudioBindingThread(threading.Thread):
 
     def _recompute(self):
         selected = self.state.get("app_audio_binding_selected")
+        if not selected and self._narrowed_app is None:
+            # Global and nothing narrowed: there is nothing to watch, so
+            # don't spawn pactl (each one opens a fresh connection to the
+            # audio server) just to learn that.
+            return
         names_of_interest = {selected} if selected else set()
         open_apps, _ = _snapshot_open_apps(names_of_interest)
         should_narrow = _decide(selected, open_apps)
 
-        if should_narrow and self._narrowed_app != selected:
-            if self._narrowed_app is None:
-                _create_tap_modules()
-            self._narrowed_app = selected
-
-        if self._narrowed_app is not None and not should_narrow:
-            self._revert_to_baseline_routing()
+        if should_narrow:
+            self._gone_since = None
+            if self._narrowed_app != selected:
+                if self._narrowed_app is None:
+                    _create_tap_modules()
+                _log(f"narrowing capture to {selected}")
+                self._narrowed_app = selected
         elif self._narrowed_app is not None:
+            # The selected app has no live stream right now. If the user
+            # switched the selection away (Global, or an app that isn't
+            # open), fall back immediately; if it's the same app whose
+            # stream just vanished, hold the tap for a grace period first -
+            # it very often comes straight back (see _TEARDOWN_GRACE_S).
+            now = time.monotonic()
+            if selected != self._narrowed_app:
+                self._revert_to_baseline_routing()
+            else:
+                if self._gone_since is None:
+                    self._gone_since = now
+                if now - self._gone_since >= _TEARDOWN_GRACE_S:
+                    self._revert_to_baseline_routing()
+
+        if self._narrowed_app is not None:
             # Every tick, regardless of whether the open-set of *names*
             # changed since last time - matching by name alone can't tell
             # a stream closing and a brand new one from the very same app
@@ -263,15 +330,19 @@ class _AppAudioBindingThread(threading.Thread):
             on_tap = si.get("sink") in tap_indices
             matches = _binary_name(si) == app_name
             if matches and not on_tap:
+                _log(f"moving {app_name} stream {idx} onto the tap")
                 _run_pactl("move-sink-input", str(idx), _NULL_SINK_NAME)
             elif not matches and on_tap:
+                _log(f"moving {_binary_name(si)} stream {idx} off the tap")
                 _run_pactl("move-sink-input", str(idx), "@DEFAULT_SINK@")
 
     def _revert_to_baseline_routing(self):
         if self._narrowed_app is None:
             return
+        _log(f"reverting to global capture (was narrowed to {self._narrowed_app})")
         _revert_any_stray_routing_and_teardown()
         self._narrowed_app = None
+        self._gone_since = None
         self.capture_source_box["source"] = None
 
 
