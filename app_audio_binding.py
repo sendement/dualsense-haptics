@@ -61,14 +61,18 @@ _THREAD = None
 _LOCK = threading.Lock()
 
 
-def _run_pactl(*args, timeout=3):
+def _run_cmd(cmd, timeout=3):
     try:
-        result = subprocess.run(["pactl", *args], capture_output=True, text=True, timeout=timeout)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as e:
         return False, str(e)
     if result.returncode != 0:
         return False, result.stderr.strip()
     return True, result.stdout
+
+
+def _run_pactl(*args, timeout=3):
+    return _run_cmd(["pactl", *args], timeout=timeout)
 
 
 def _list_json(*args):
@@ -83,15 +87,80 @@ def _list_json(*args):
         return []
 
 
+# pactl reports a missing string property as the literal "(null)".
+_MISSING = (None, "", "(null)")
+
+# PipeWire client.id -> (binary or None, monotonic time it was looked up).
+# A found binary never changes for the life of the client; a miss is retried
+# after a while (the client may not have published its properties yet).
+_CLIENT_BINARY_CACHE = {}
+_CLIENT_MISS_TTL_S = 5.0
+_CLIENT_CACHE_MAX = 256
+
+
 def _binary_name(sink_input):
+    """The name a stream's own properties give it - process binary, else
+    application name - or None if neither is usable."""
     props = sink_input.get("properties", {})
-    return props.get("application.process.binary") or props.get("application.name")
+    for key in ("application.process.binary", "application.name"):
+        value = props.get(key)
+        if value not in _MISSING:
+            return value
+    return None
+
+
+def _client_binary(client_id):
+    """application.process.binary of the PipeWire *client* behind a stream.
+
+    Native PipeWire streams - what Proton/Wine games create through the ALSA
+    plugin - show up in pactl with no process binary and "(null)" names (a
+    "™" in a game's title is enough), so the stream itself can't say which
+    app it is; its client object still can. `pw-dump <id>` returns just that
+    object (a full dump is ~300KB), cached per client."""
+    if client_id in _MISSING:
+        return None
+    key = str(client_id)
+    now = time.monotonic()
+    cached = _CLIENT_BINARY_CACHE.get(key)
+    if cached is not None:
+        binary, looked_up = cached
+        if binary or now - looked_up < _CLIENT_MISS_TTL_S:
+            return binary
+    binary = None
+    ok, out = _run_cmd(["pw-dump", key])
+    if ok:
+        try:
+            for obj in json.loads(out):
+                if str(obj.get("id")) == key:
+                    value = obj.get("info", {}).get("props", {}).get("application.process.binary")
+                    if value not in _MISSING:
+                        binary = value
+                    break
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            pass
+    if len(_CLIENT_BINARY_CACHE) >= _CLIENT_CACHE_MAX:
+        _CLIENT_BINARY_CACHE.clear()
+    _CLIENT_BINARY_CACHE[key] = (binary, now)
+    return binary
+
+
+def _app_name(sink_input):
+    """Which app a sink-input belongs to: its own process binary, else its
+    PipeWire client's binary, else its application name."""
+    props = sink_input.get("properties", {})
+    binary = props.get("application.process.binary")
+    if binary not in _MISSING:
+        return binary
+    binary = _client_binary(props.get("client.id"))
+    if binary:
+        return binary
+    return _binary_name(sink_input)
 
 
 def list_active_app_names():
     """Distinct process names of every app currently producing sound - feeds
     the "App Sound" page's add-app picker."""
-    names = {_binary_name(si) for si in _list_json("sink-inputs")}
+    names = {_app_name(si) for si in _list_json("sink-inputs")}
     names.discard(None)
     return sorted(names)
 
@@ -102,7 +171,7 @@ def _snapshot_open_apps(names_of_interest):
     open_set = set()
     indices = {}
     for si in _list_json("sink-inputs"):
-        name = _binary_name(si)
+        name = _app_name(si)
         if name in names_of_interest:
             open_set.add(name)
             indices.setdefault(name, []).append(si.get("index"))
@@ -328,12 +397,12 @@ class _AppAudioBindingThread(threading.Thread):
             if idx is None:
                 continue
             on_tap = si.get("sink") in tap_indices
-            matches = _binary_name(si) == app_name
+            matches = _app_name(si) == app_name
             if matches and not on_tap:
                 _log(f"moving {app_name} stream {idx} onto the tap")
                 _run_pactl("move-sink-input", str(idx), _NULL_SINK_NAME)
             elif not matches and on_tap:
-                _log(f"moving {_binary_name(si)} stream {idx} off the tap")
+                _log(f"moving {_app_name(si)} stream {idx} off the tap")
                 _run_pactl("move-sink-input", str(idx), "@DEFAULT_SINK@")
 
     def _revert_to_baseline_routing(self):

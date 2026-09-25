@@ -4847,7 +4847,10 @@ class AppAudioRow(QFrame):
         layout.addWidget(self.radio)
         if on_remove is not None:
             remove = QPushButton("♲  " + t("btn_remove"))
-            remove.clicked.connect(on_remove)
+            # clicked() carries a `checked` bool; passing on_remove straight
+            # through let it overwrite the row's own `a=app` lambda default
+            # (calling _remove_app(False)), so Remove silently did nothing.
+            remove.clicked.connect(lambda _checked=False: on_remove())
             layout.addWidget(remove)
 
 
@@ -5066,8 +5069,13 @@ class AppAudioBindingPage(QWidget):
             label_text, self._button_group, checked, active, waiting, on_select, on_remove)
 
     def _refresh_app_combo(self):
-        current_text = self.app_combo.currentText()
         live_apps = list(self.list_active_apps())
+        if set(live_apps) == self.live_apps:
+            # Nothing changed: rebuilding the rows every tick would delete
+            # the very button being clicked (press and release landing on
+            # different widgets) and collapse an open dropdown.
+            return
+        current_text = self.app_combo.currentText()
         self.live_apps = set(live_apps)
         self.app_combo.clear()
         self.app_combo.addItems(live_apps)

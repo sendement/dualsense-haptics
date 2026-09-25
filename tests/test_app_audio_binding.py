@@ -22,6 +22,16 @@ class TestDecide:
         assert aab._decide("mpv", set()) is False
 
 
+class TestNullNamesAreMissing:
+    def test_pactl_null_placeholder_is_not_a_name(self):
+        si = {"properties": {"application.name": "(null)", "node.name": "(null)"}}
+        assert aab._binary_name(si) is None
+
+    def test_null_binary_falls_through_to_application_name(self):
+        si = {"properties": {"application.process.binary": "(null)", "application.name": "mpv"}}
+        assert aab._binary_name(si) == "mpv"
+
+
 class TestBinaryName:
     def test_prefers_process_binary_over_application_name(self):
         si = {"properties": {"application.process.binary": "mpv", "application.name": "mpv media player"}}
@@ -185,3 +195,79 @@ class TestTeardownSafety:
         aab._revert_any_stray_routing_and_teardown()
         assert len([c for c in calls if c[0] == "pactl"]) == aab._TEARDOWN_RECHECKS
         assert calls[-1] == ("teardown",)
+
+
+class TestAppNameResolution:
+    """A native PipeWire stream (Proton/Wine via the ALSA plugin) has no
+    binary and (null) names in pactl, but its PipeWire client knows the app."""
+
+    GAME_STREAM = {"index": 3698, "properties": {
+        "application.name": "(null)", "node.name": "(null)", "client.id": "66"}}
+
+    @pytest.fixture(autouse=True)
+    def _clean_cache(self):
+        aab._CLIENT_BINARY_CACHE.clear()
+        yield
+        aab._CLIENT_BINARY_CACHE.clear()
+
+    def _pw_dump(self, monkeypatch, binary, calls):
+        payload = [
+            {"id": 61, "type": "PipeWire:Interface:Device", "info": {"props": {}}},
+            {"id": 66, "type": "PipeWire:Interface:Client",
+             "info": {"props": {"application.process.binary": binary}}},
+        ]
+        def run(cmd, timeout=3):
+            calls.append(cmd)
+            return True, aab.json.dumps(payload)
+        monkeypatch.setattr(aab, "_run_cmd", run)
+
+    def test_stream_without_a_binary_is_identified_by_its_client(self, monkeypatch):
+        calls = []
+        self._pw_dump(monkeypatch, "wine64-preloader", calls)
+        assert aab._app_name(self.GAME_STREAM) == "wine64-preloader"
+        assert calls == [["pw-dump", "66"]]
+
+    def test_only_the_client_object_is_read_not_other_objects_in_the_reply(self, monkeypatch):
+        calls = []
+        self._pw_dump(monkeypatch, "wine64-preloader", calls)
+        assert aab._client_binary("61") is None  # id 61 is a Device, not the requested client
+
+    def test_a_streams_own_binary_wins_and_no_lookup_happens(self, monkeypatch):
+        calls = []
+        self._pw_dump(monkeypatch, "wine64-preloader", calls)
+        si = {"properties": {"application.process.binary": "firefox", "client.id": "66"}}
+        assert aab._app_name(si) == "firefox"
+        assert calls == []
+
+    def test_a_found_binary_is_cached(self, monkeypatch):
+        calls = []
+        self._pw_dump(monkeypatch, "wine64-preloader", calls)
+        aab._app_name(self.GAME_STREAM)
+        aab._app_name(self.GAME_STREAM)
+        assert len(calls) == 1
+
+    def test_a_miss_is_retried_only_after_the_ttl(self, monkeypatch):
+        calls = []
+        clock = {"t": 100.0}
+        monkeypatch.setattr(aab, "time", types.SimpleNamespace(monotonic=lambda: clock["t"], sleep=lambda s: None))
+        self._pw_dump(monkeypatch, "(null)", calls)
+        assert aab._app_name(self.GAME_STREAM) is None
+        clock["t"] += 1.0
+        aab._app_name(self.GAME_STREAM)
+        assert len(calls) == 1
+        clock["t"] += aab._CLIENT_MISS_TTL_S
+        aab._app_name(self.GAME_STREAM)
+        assert len(calls) == 2
+
+    def test_pw_dump_failure_falls_back_to_the_stream_name(self, monkeypatch):
+        monkeypatch.setattr(aab, "_run_cmd", lambda cmd, timeout=3: (False, "no pw-dump"))
+        si = {"properties": {"application.name": "SomeApp", "client.id": "66"}}
+        assert aab._app_name(si) == "SomeApp"
+        assert aab._app_name(self.GAME_STREAM) is None
+
+    def test_picker_lists_the_resolved_game_not_null(self, monkeypatch):
+        calls = []
+        self._pw_dump(monkeypatch, "wine64-preloader", calls)
+        monkeypatch.setattr(aab, "_list_json", lambda *a: [
+            {"properties": {"application.process.binary": "vivaldi-bin"}}, self.GAME_STREAM])
+        assert aab.list_active_app_names() == ["vivaldi-bin", "wine64-preloader"]

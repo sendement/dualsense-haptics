@@ -153,6 +153,41 @@ def test_upstream_app_sound_page_coexists_with_custom_dashboard(dashboard):
     assert window.home_page.trigger_panels['left'].mode_combo.count() > 1
 
 
+def test_remove_button_actually_removes_the_app(dashboard):
+    """Regression: clicked(bool) used to overwrite the row lambda's `a=app`
+    default with False, so clicking Remove silently did nothing (calling
+    _remove_app directly, as other tests do, never exercised that)."""
+    from PySide6.QtWidgets import QPushButton
+
+    window, engine, app = dashboard
+    page = window.app_audio_binding_page
+    window.state['app_audio_binding_apps'] = ['vivaldi-bin', 'wine64-preloader']
+    window.state['app_audio_binding_selected'] = 'wine64-preloader'
+    page.refresh()
+
+    page.app_rows['wine64-preloader'].findChildren(QPushButton)[0].click()
+
+    assert window.state['app_audio_binding_apps'] == ['vivaldi-bin']
+    assert window.state['app_audio_binding_selected'] is None
+    assert 'wine64-preloader' not in page.app_rows
+
+
+def test_app_list_is_not_rebuilt_when_the_live_apps_did_not_change(dashboard):
+    window, engine, app = dashboard
+    page = window.app_audio_binding_page
+    page.list_active_apps = lambda: ['firefox']
+    page._refresh_app_combo()
+    row = page.app_rows[None]
+
+    page._refresh_app_combo()
+    page._refresh_app_combo()
+    assert page.app_rows[None] is row  # same widget: nothing was torn down under the cursor
+
+    page.list_active_apps = lambda: ['firefox', 'mpv']
+    page._refresh_app_combo()
+    assert page.app_rows[None] is not row  # a real change does refresh
+
+
 def test_app_sound_redesign_distinguishes_selection_from_live_routing(dashboard):
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QBoxLayout
