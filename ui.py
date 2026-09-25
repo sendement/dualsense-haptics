@@ -4868,13 +4868,17 @@ class AppAudioBindingPage(QWidget):
     _COMBO_REFRESH_MS = 2000
 
     def __init__(self, state, list_active_apps, on_toggle_enabled, on_change,
-                 connection_getter=None):
+                 connection_getter=None, list_apps_snapshot=None):
         super().__init__()
         self.state = state
         self.list_active_apps = list_active_apps
+        # Optional: () -> (picker names, every identity in play) from one
+        # audio-server query; without it live status just uses the names.
+        self.list_apps_snapshot = list_apps_snapshot
         self.on_change = on_change
         self.connection_getter = connection_getter or (lambda: None)
         self.live_apps = set()
+        self._picker_apps = []
         self.app_rows = {}
 
         page_layout = QVBoxLayout(self)
@@ -5069,14 +5073,21 @@ class AppAudioBindingPage(QWidget):
             label_text, self._button_group, checked, active, waiting, on_select, on_remove)
 
     def _refresh_app_combo(self):
-        live_apps = list(self.list_active_apps())
-        if set(live_apps) == self.live_apps:
+        if self.list_apps_snapshot is not None:
+            live_apps, identities = self.list_apps_snapshot()
+            live_apps = list(live_apps)
+            identities = set(identities) | set(live_apps)
+        else:
+            live_apps = list(self.list_active_apps())
+            identities = set(live_apps)
+        if identities == self.live_apps and live_apps == self._picker_apps:
             # Nothing changed: rebuilding the rows every tick would delete
             # the very button being clicked (press and release landing on
             # different widgets) and collapse an open dropdown.
             return
         current_text = self.app_combo.currentText()
-        self.live_apps = set(live_apps)
+        self.live_apps = identities
+        self._picker_apps = live_apps
         self.app_combo.clear()
         self.app_combo.addItems(live_apps)
         self.app_combo.setCurrentText(current_text)
@@ -5486,7 +5497,8 @@ class MainWindow(QWidget):
         self.app_audio_binding_page = AppAudioBindingPage(
             self.state, app_audio_binding.list_active_app_names,
             self._set_app_audio_binding_enabled, self._on_state_changed,
-            lambda: self.home_page.connection_indicator.kind)
+            lambda: self.home_page.connection_indicator.kind,
+            list_apps_snapshot=app_audio_binding.list_active_apps_snapshot)
         self.triggers_page = TriggersPage(
             self.state, self._apply_trigger_preset, self._turn_off_triggers, self._apply_custom_trigger,
             lambda: self.home_page.connection_indicator.kind,

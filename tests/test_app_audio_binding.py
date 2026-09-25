@@ -199,37 +199,74 @@ class TestTeardownSafety:
 
 class TestAppNameResolution:
     """A native PipeWire stream (Proton/Wine via the ALSA plugin) has no
-    binary and (null) names in pactl, but its PipeWire client knows the app."""
+    binary and (null) names in pactl, but its PipeWire client knows the app
+    - and, for a Wine game, its title."""
 
     GAME_STREAM = {"index": 3698, "properties": {
         "application.name": "(null)", "node.name": "(null)", "client.id": "66"}}
 
     @pytest.fixture(autouse=True)
     def _clean_cache(self):
-        aab._CLIENT_BINARY_CACHE.clear()
+        aab._CLIENT_INFO_CACHE.clear()
         yield
-        aab._CLIENT_BINARY_CACHE.clear()
+        aab._CLIENT_INFO_CACHE.clear()
 
-    def _pw_dump(self, monkeypatch, binary, calls):
+    def _pw_dump(self, monkeypatch, binary, calls, name="ELDEN RING\u2122"):
+        props = {"application.process.binary": binary}
+        if name is not None:
+            props["application.name"] = name
         payload = [
             {"id": 61, "type": "PipeWire:Interface:Device", "info": {"props": {}}},
-            {"id": 66, "type": "PipeWire:Interface:Client",
-             "info": {"props": {"application.process.binary": binary}}},
+            {"id": 66, "type": "PipeWire:Interface:Client", "info": {"props": props}},
         ]
         def run(cmd, timeout=3):
             calls.append(cmd)
             return True, aab.json.dumps(payload)
         monkeypatch.setattr(aab, "_run_cmd", run)
 
-    def test_stream_without_a_binary_is_identified_by_its_client(self, monkeypatch):
+    def test_wine_game_is_named_by_its_title(self, monkeypatch):
         calls = []
         self._pw_dump(monkeypatch, "wine64-preloader", calls)
-        assert aab._app_name(self.GAME_STREAM) == "wine64-preloader"
+        assert aab._app_name(self.GAME_STREAM) == "ELDEN RING\u2122"
+        assert aab._stream_identities(self.GAME_STREAM) == ["ELDEN RING\u2122", "wine64-preloader"]
         assert calls == [["pw-dump", "66"]]
 
-    def test_only_the_client_object_is_read_not_other_objects_in_the_reply(self, monkeypatch):
+    def test_a_pin_made_on_the_binary_still_matches_the_game(self, monkeypatch):
+        self._pw_dump(monkeypatch, "wine64-preloader", [])
+        monkeypatch.setattr(aab, "_list_json", lambda *a: [self.GAME_STREAM])
+        assert aab._snapshot_open_apps({"wine64-preloader"})[0] == {"wine64-preloader"}
+        assert aab._snapshot_open_apps({"ELDEN RING\u2122"})[0] == {"ELDEN RING\u2122"}
+        assert aab._snapshot_open_apps({"firefox"})[0] == set()
+
+    def test_pinning_one_game_does_not_match_another_wine_game(self, monkeypatch):
+        other = {"index": 9, "properties": {
+            "application.process.binary": "wine64-preloader", "application.name": "Townfall.exe"}}
+        self._pw_dump(monkeypatch, "wine64-preloader", [])
+        monkeypatch.setattr(aab, "_list_json", lambda *a: [self.GAME_STREAM, other])
+        _, indices = aab._snapshot_open_apps({"ELDEN RING\u2122"})
+        assert indices == {"ELDEN RING\u2122": [3698]}
+
+    def test_a_stream_that_already_has_a_usable_name_needs_no_lookup(self, monkeypatch):
         calls = []
         self._pw_dump(monkeypatch, "wine64-preloader", calls)
+        si = {"properties": {"application.process.binary": "wine64-preloader",
+                             "application.name": "Townfall.exe", "client.id": "66"}}
+        assert aab._app_name(si) == "Townfall.exe"
+        assert calls == []
+
+    @pytest.mark.parametrize("useless", [None, "wine64-preloader", "ALSA plug-in [wine64-preloader]", "(null)", " "])
+    def test_a_useless_client_name_falls_back_to_the_binary(self, monkeypatch, useless):
+        self._pw_dump(monkeypatch, "wine64-preloader", [], name=useless)
+        assert aab._app_name(self.GAME_STREAM) == "wine64-preloader"
+
+    def test_non_wine_apps_are_named_by_binary_not_title(self, monkeypatch):
+        calls = []
+        self._pw_dump(monkeypatch, "vivaldi-bin", calls, name="Vivaldi")
+        si = {"properties": {"application.name": "(null)", "client.id": "66"}}
+        assert aab._app_name(si) == "vivaldi-bin"
+
+    def test_only_the_client_object_is_read_not_other_objects_in_the_reply(self, monkeypatch):
+        self._pw_dump(monkeypatch, "wine64-preloader", [])
         assert aab._client_binary("61") is None  # id 61 is a Device, not the requested client
 
     def test_a_streams_own_binary_wins_and_no_lookup_happens(self, monkeypatch):
@@ -239,7 +276,7 @@ class TestAppNameResolution:
         assert aab._app_name(si) == "firefox"
         assert calls == []
 
-    def test_a_found_binary_is_cached(self, monkeypatch):
+    def test_a_found_client_is_cached(self, monkeypatch):
         calls = []
         self._pw_dump(monkeypatch, "wine64-preloader", calls)
         aab._app_name(self.GAME_STREAM)
@@ -250,7 +287,7 @@ class TestAppNameResolution:
         calls = []
         clock = {"t": 100.0}
         monkeypatch.setattr(aab, "time", types.SimpleNamespace(monotonic=lambda: clock["t"], sleep=lambda s: None))
-        self._pw_dump(monkeypatch, "(null)", calls)
+        self._pw_dump(monkeypatch, "(null)", calls, name=None)
         assert aab._app_name(self.GAME_STREAM) is None
         clock["t"] += 1.0
         aab._app_name(self.GAME_STREAM)
@@ -265,9 +302,31 @@ class TestAppNameResolution:
         assert aab._app_name(si) == "SomeApp"
         assert aab._app_name(self.GAME_STREAM) is None
 
-    def test_picker_lists_the_resolved_game_not_null(self, monkeypatch):
-        calls = []
-        self._pw_dump(monkeypatch, "wine64-preloader", calls)
+    def test_picker_lists_the_game_title_not_null_or_the_binary(self, monkeypatch):
+        self._pw_dump(monkeypatch, "wine64-preloader", [])
         monkeypatch.setattr(aab, "_list_json", lambda *a: [
             {"properties": {"application.process.binary": "vivaldi-bin"}}, self.GAME_STREAM])
-        assert aab.list_active_app_names() == ["vivaldi-bin", "wine64-preloader"]
+        assert aab.list_active_app_names() == ["ELDEN RING\u2122", "vivaldi-bin"]
+
+    def test_the_taps_own_loopback_stream_is_not_an_app(self, monkeypatch):
+        loopback = {"index": 4068, "properties": {
+            "client.id": "70", "node.name": "output.loopback-361988-13",
+            "media.name": "loopback-361988-13 output"}}
+        assert aab._stream_identities(loopback) == []
+        monkeypatch.setattr(aab, "_list_json", lambda *a: [
+            {"properties": {"application.process.binary": "vivaldi-bin"}}, loopback])
+        assert aab.list_active_app_names() == ["vivaldi-bin"]
+
+    def test_a_real_app_is_not_mistaken_for_the_loopback(self):
+        si = {"properties": {"application.process.binary": "pw-play", "node.name": "pw-play"}}
+        assert aab._stream_identities(si) == ["pw-play"]
+
+    def test_snapshot_gives_picker_names_and_every_identity_from_one_listing(self, monkeypatch):
+        self._pw_dump(monkeypatch, "wine64-preloader", [])
+        listings = []
+        monkeypatch.setattr(aab, "_list_json", lambda *a: listings.append(a) or [
+            {"properties": {"application.process.binary": "vivaldi-bin"}}, self.GAME_STREAM])
+        names, identities = aab.list_active_apps_snapshot()
+        assert names == ["ELDEN RING\u2122", "vivaldi-bin"]
+        assert identities == {"ELDEN RING\u2122", "wine64-preloader", "vivaldi-bin"}
+        assert len(listings) == 1

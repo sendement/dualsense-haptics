@@ -90,12 +90,17 @@ def _list_json(*args):
 # pactl reports a missing string property as the literal "(null)".
 _MISSING = (None, "", "(null)")
 
-# PipeWire client.id -> (binary or None, monotonic time it was looked up).
-# A found binary never changes for the life of the client; a miss is retried
-# after a while (the client may not have published its properties yet).
-_CLIENT_BINARY_CACHE = {}
+# PipeWire client.id -> ((binary, application name), monotonic time looked
+# up). A found binary never changes for the life of the client; a miss is
+# retried after a while (the client may not have published its properties
+# yet).
+_CLIENT_INFO_CACHE = {}
 _CLIENT_MISS_TTL_S = 5.0
 _CLIENT_CACHE_MAX = 256
+
+# Names that say nothing about *which* game a Wine stream belongs to.
+_GENERIC_NAMES = {"wine", "wine64", "wine-preloader", "wine64-preloader",
+                  "playback", "audio stream", "pipewire", "pulseaudio"}
 
 
 def _binary_name(sink_input):
@@ -109,60 +114,133 @@ def _binary_name(sink_input):
     return None
 
 
-def _client_binary(client_id):
-    """application.process.binary of the PipeWire *client* behind a stream.
+def _is_wine_binary(name):
+    return bool(name) and name.startswith("wine") and (
+        name.endswith("-preloader") or name in ("wine", "wine64"))
+
+
+def _game_name(name, binary):
+    """`name` if it actually names something (a game), else None."""
+    if name in _MISSING:
+        return None
+    name = name.strip()
+    low = name.lower()
+    if not low or low == (binary or "").lower() or low in _GENERIC_NAMES:
+        return None
+    if low.startswith("alsa plug-in"):
+        return None
+    return name
+
+
+def _client_info(client_id):
+    """(application.process.binary, application.name) of the PipeWire
+    *client* behind a stream.
 
     Native PipeWire streams - what Proton/Wine games create through the ALSA
     plugin - show up in pactl with no process binary and "(null)" names (a
-    "™" in a game's title is enough), so the stream itself can't say which
-    app it is; its client object still can. `pw-dump <id>` returns just that
-    object (a full dump is ~300KB), cached per client."""
+    "TM" in a game's title is enough), so the stream itself can't say which
+    app it is; its client object still can, and for a Wine game its name is
+    the game's title. `pw-dump <id>` returns just that object (a full dump
+    is ~300KB), cached per client."""
     if client_id in _MISSING:
-        return None
+        return None, None
     key = str(client_id)
     now = time.monotonic()
-    cached = _CLIENT_BINARY_CACHE.get(key)
+    cached = _CLIENT_INFO_CACHE.get(key)
     if cached is not None:
-        binary, looked_up = cached
-        if binary or now - looked_up < _CLIENT_MISS_TTL_S:
-            return binary
-    binary = None
+        info, looked_up = cached
+        if info[0] or now - looked_up < _CLIENT_MISS_TTL_S:
+            return info
+    info = (None, None)
     ok, out = _run_cmd(["pw-dump", key])
     if ok:
         try:
             for obj in json.loads(out):
                 if str(obj.get("id")) == key:
-                    value = obj.get("info", {}).get("props", {}).get("application.process.binary")
-                    if value not in _MISSING:
-                        binary = value
+                    props = obj.get("info", {}).get("props", {})
+                    binary = props.get("application.process.binary")
+                    name = props.get("application.name")
+                    info = (None if binary in _MISSING else binary,
+                            None if name in _MISSING else name)
                     break
         except (json.JSONDecodeError, TypeError, AttributeError):
             pass
-    if len(_CLIENT_BINARY_CACHE) >= _CLIENT_CACHE_MAX:
-        _CLIENT_BINARY_CACHE.clear()
-    _CLIENT_BINARY_CACHE[key] = (binary, now)
-    return binary
+    if len(_CLIENT_INFO_CACHE) >= _CLIENT_CACHE_MAX:
+        _CLIENT_INFO_CACHE.clear()
+    _CLIENT_INFO_CACHE[key] = (info, now)
+    return info
+
+
+def _client_binary(client_id):
+    return _client_info(client_id)[0]
+
+
+def _is_loopback_stream(props):
+    """The output side of a module-loopback - ours (the per-app tap's) is
+    always up while narrowed. Plumbing, not an app anyone would pin. Matched
+    by its node name (output.loopback-<pid>-<id>): the stream carries no
+    process binary of its own, only its client's."""
+    name = props.get("node.name") or props.get("media.name") or ""
+    return name.startswith(("output.loopback-", "loopback-"))
+
+
+def _stream_identities(sink_input):
+    """Every name a stream can be pinned under, best first. A Wine game's
+    title comes first (so pins are per game, not "any Wine program"), then
+    its process binary - so a pin made before titles were shown, like
+    wine64-preloader, keeps matching. Anything else is just its binary or
+    application name."""
+    props = sink_input.get("properties", {})
+    if _is_loopback_stream(props):
+        return []
+    binary = props.get("application.process.binary")
+    binary = None if binary in _MISSING else binary
+    own_name = props.get("application.name")
+    client_binary = client_name = None
+    if binary is None or (_is_wine_binary(binary) and _game_name(own_name, binary) is None):
+        client_binary, client_name = _client_info(props.get("client.id"))
+    binary = binary or client_binary
+
+    identities = []
+    if _is_wine_binary(binary):
+        game = _game_name(own_name, binary) or _game_name(client_name, binary)
+        if game:
+            identities.append(game)
+    if binary:
+        identities.append(binary)
+    else:
+        fallback = _binary_name(sink_input)
+        if fallback:
+            identities.append(fallback)
+    return identities
 
 
 def _app_name(sink_input):
-    """Which app a sink-input belongs to: its own process binary, else its
-    PipeWire client's binary, else its application name."""
-    props = sink_input.get("properties", {})
-    binary = props.get("application.process.binary")
-    if binary not in _MISSING:
-        return binary
-    binary = _client_binary(props.get("client.id"))
-    if binary:
-        return binary
-    return _binary_name(sink_input)
+    """The name shown for a stream: its first (best) identity."""
+    identities = _stream_identities(sink_input)
+    return identities[0] if identities else None
 
 
 def list_active_app_names():
-    """Distinct process names of every app currently producing sound - feeds
-    the "App Sound" page's add-app picker."""
+    """Distinct names of every app currently producing sound - feeds the
+    "App Sound" page's add-app picker (Wine games listed by title)."""
     names = {_app_name(si) for si in _list_json("sink-inputs")}
     names.discard(None)
     return sorted(names)
+
+
+def list_active_apps_snapshot():
+    """(picker names, every identity in play) from ONE sink-input listing.
+    The names are what the add-app picker offers (a Wine game by title); the
+    identities also include fallbacks like wine64-preloader, so a pin made
+    on those is still recognised as live by the page's status badges."""
+    names, identities = set(), set()
+    for si in _list_json("sink-inputs"):
+        ids = _stream_identities(si)
+        if ids:
+            names.add(ids[0])
+            identities.update(ids)
+    return sorted(names), identities
 
 
 def _snapshot_open_apps(names_of_interest):
@@ -171,10 +249,10 @@ def _snapshot_open_apps(names_of_interest):
     open_set = set()
     indices = {}
     for si in _list_json("sink-inputs"):
-        name = _app_name(si)
-        if name in names_of_interest:
-            open_set.add(name)
-            indices.setdefault(name, []).append(si.get("index"))
+        for name in _stream_identities(si):
+            if name in names_of_interest:
+                open_set.add(name)
+                indices.setdefault(name, []).append(si.get("index"))
     return open_set, indices
 
 
@@ -397,7 +475,7 @@ class _AppAudioBindingThread(threading.Thread):
             if idx is None:
                 continue
             on_tap = si.get("sink") in tap_indices
-            matches = _app_name(si) == app_name
+            matches = app_name in _stream_identities(si)
             if matches and not on_tap:
                 _log(f"moving {app_name} stream {idx} onto the tap")
                 _run_pactl("move-sink-input", str(idx), _NULL_SINK_NAME)

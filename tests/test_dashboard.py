@@ -47,6 +47,7 @@ def dashboard(monkeypatch):
     from unittest.mock import Mock
     monkeypatch.setattr('config.set_autostart', Mock())
     monkeypatch.setattr('app_audio_binding.list_active_app_names', lambda: ['firefox'])
+    monkeypatch.setattr('app_audio_binding.list_active_apps_snapshot', lambda: (['firefox'], {'firefox'}))
     state = _default_state()
     engine = HapticsEngine(state['active'])
     app.setStyleSheet(theme.manager.stylesheet())
@@ -172,10 +173,27 @@ def test_remove_button_actually_removes_the_app(dashboard):
     assert 'wine64-preloader' not in page.app_rows
 
 
+def test_pin_on_the_wine_binary_shows_live_when_the_game_is_listed_by_title(dashboard):
+    """The picker offers the game's title, but a pin made earlier on the
+    process binary (wine64-preloader) must still read as live."""
+    window, engine, app = dashboard
+    page = window.app_audio_binding_page
+    window.state['app_audio_binding_enabled'] = True
+    window.state['app_audio_binding_apps'] = ['wine64-preloader']
+    window.state['app_audio_binding_selected'] = 'wine64-preloader'
+    page.list_apps_snapshot = lambda: (['ELDEN RING\u2122'], {'ELDEN RING\u2122', 'wine64-preloader'})
+    page._refresh_app_combo()
+
+    assert page.app_combo.findText('ELDEN RING\u2122') >= 0
+    assert page.app_combo.findText('wine64-preloader') < 0  # picker lists titles only
+    assert 'wine64-preloader' in page.live_apps
+    assert page.app_rows['wine64-preloader'].property('active') is True
+
+
 def test_app_list_is_not_rebuilt_when_the_live_apps_did_not_change(dashboard):
     window, engine, app = dashboard
     page = window.app_audio_binding_page
-    page.list_active_apps = lambda: ['firefox']
+    page.list_apps_snapshot = lambda: (['firefox'], {'firefox'})
     page._refresh_app_combo()
     row = page.app_rows[None]
 
@@ -183,7 +201,7 @@ def test_app_list_is_not_rebuilt_when_the_live_apps_did_not_change(dashboard):
     page._refresh_app_combo()
     assert page.app_rows[None] is row  # same widget: nothing was torn down under the cursor
 
-    page.list_active_apps = lambda: ['firefox', 'mpv']
+    page.list_apps_snapshot = lambda: (['firefox', 'mpv'], {'firefox', 'mpv'})
     page._refresh_app_combo()
     assert page.app_rows[None] is not row  # a real change does refresh
 
