@@ -51,8 +51,13 @@ one-shot HID reports rather than something worth reimplementing here.
 Over Bluetooth, Steam grabs raw HID control of the controller for any game
 with native adaptive-trigger support and keeps writing to it for as long as
 Steam runs — this app's own rumble still gets sent, but gets silently
-overwritten on the wire, so nothing reaches the motors even though trigger
-effects keep working. **Trigger + Vibration Mix** (desktop only, opt-in
+overwritten on the wire, so nothing reaches the motors. Trigger effects
+kept working in desktop testing with a regular DualSense, but that isn't
+guaranteed everywhere: HID has no notion of ownership, so whichever output
+report reaches the controller last wins, and where Steam Input is fully in
+control (e.g. Steam Deck Gaming Mode) it can overwrite an effect too — see
+the [Steam Deck section](#steam-deck--steamos-decky-loader-plugin).
+**Trigger + Vibration Mix** (desktop only, opt-in
 under **Experimental Features**, off by default) fixes this: it clones the
 controller via `/dev/uhid`, hides the real device from everyone else, and
 merges its own audio-reactive rumble into whatever Steam separately writes
@@ -102,11 +107,13 @@ make it flaky too — see [Limitations](#limitations).
   trigger (L2/R2), plus a **custom effect builder** to dial in the raw
   `dualsensectl` parameters (mode, position, strength, frequency, etc.) by
   hand and experiment beyond the presets. If a game is already driving the
-  triggers itself, the app detects that the device is held open elsewhere
-  and skips automatically re-applying its own effect on reconnect, so it
-  won't fight the game — or, on Bluetooth, turn on **Trigger + Vibration
-  Mix** (desktop only, see [How it works](#how-it-works)) so it doesn't
-  need to skip anything in the first place.
+  triggers itself, the desktop app detects that the device is held open
+  elsewhere and skips automatically re-applying its own effect on
+  reconnect, so it won't fight the game — or, on Bluetooth, turn on
+  **Trigger + Vibration Mix** (desktop only, see
+  [How it works](#how-it-works)) so it doesn't need to skip anything in
+  the first place. The Decky plugin never re-applies trigger presets
+  automatically: pick the preset again after the controller reconnects.
 - **Per-button haptics** — pick any face button, bumper, trigger click,
   stick click, or the D-pad to buzz lightly while held, mixed with the audio
   vibration, at its own strength, from the motor on that side of the pad.
@@ -262,6 +269,20 @@ Picture/gamescope kept showing a duplicate controller icon with doubled
 inputs on reconnect, traced to how Steam's own controller detection
 handles the cloned device - see [How it works](#how-it-works) for what the
 feature does on desktop, where this doesn't come up.
+
+**Adaptive triggers on the Deck.** A trigger preset is one `dualsensectl`
+call (a single HID output report) sent when you pick it in the panel; the
+plugin does not re-apply it after a reconnect (the controller drops the
+effect when it reconnects), so pick it again. "Overridden by Steam" in the
+panel only means another process (Steam, always, in Gaming Mode) holds the
+controller open - nothing is blocked, but with Steam Input active Steam's
+own output reports can overwrite the effect, more so over Bluetooth than
+USB, so USB is the reliable choice there. A command counts as failed if
+`dualsensectl` exits non-zero or logs a `hid_write` error (it can still exit
+0 in that case); to check by hand, run `dualsensectl trigger left feedback 0 8; echo $?`
+in a terminal and look for `hid_write` in the output - none, but the effect
+vanishes, points to Steam overwriting it (try turning off Steam Input for
+the controller).
 
 Requires [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader#-installation)
 already installed. Easiest: pick "Steam Deck / Decky Loader plugin" in the

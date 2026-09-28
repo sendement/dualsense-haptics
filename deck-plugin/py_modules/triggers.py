@@ -91,6 +91,19 @@ def is_controller_owned_elsewhere():
     return other_process_has_device_open(find_hidraw_paths() + [find_evdev_path()])
 
 
+def dualsensectl_error(result):
+    """Error text if a dualsensectl run did not reach the controller, else
+    None. dualsensectl 0.7.0 logs a failed hid_write to stderr but still
+    exits 0, so the exit status alone can report success (and get a preset
+    remembered) for a command that was never delivered."""
+    stderr = (result.stderr or "").strip()
+    if result.returncode != 0:
+        return stderr or "dualsensectl failed"
+    if "hid_write" in stderr.lower():
+        return stderr
+    return None
+
+
 def apply_trigger_preset(preset_id, trigger="both"):
     if preset_id not in TRIGGER_PRESETS:
         return False, f"unknown preset {preset_id}"
@@ -101,8 +114,9 @@ def apply_trigger_preset(preset_id, trigger="both"):
         result = subprocess.run(args, capture_output=True, text=True, timeout=3)
     except (OSError, subprocess.TimeoutExpired) as e:
         return False, str(e)
-    if result.returncode != 0:
-        return False, result.stderr.strip() or "dualsensectl failed"
+    error = dualsensectl_error(result)
+    if error:
+        return False, error
     return True, ""
 
 
@@ -132,8 +146,9 @@ def apply_custom_trigger(mode, values, trigger="both"):
             capture_output=True, text=True, timeout=3)
     except (OSError, subprocess.TimeoutExpired) as e:
         return False, str(e)
-    if result.returncode != 0:
-        return False, result.stderr.strip() or "dualsensectl failed"
+    error = dualsensectl_error(result)
+    if error:
+        return False, error
     return True, ""
 
 
@@ -144,8 +159,9 @@ def turn_off_triggers(trigger="both"):
             capture_output=True, text=True, timeout=3)
     except (OSError, subprocess.TimeoutExpired) as e:
         return False, str(e)
-    if result.returncode != 0:
-        return False, result.stderr.strip() or "dualsensectl failed"
+    error = dualsensectl_error(result)
+    if error:
+        return False, error
     return True, ""
 
 

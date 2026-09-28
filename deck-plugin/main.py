@@ -123,6 +123,19 @@ def _in_deck_like_session() -> bool:
 GAMESCOPE_POLL_INTERVAL_S = 10
 
 
+def _dualsensectl_error(result):
+    """Error text if a dualsensectl run did not reach the controller, else
+    None - dualsensectl 0.7.0 logs a failed hid_write to stderr but still
+    exits 0 (same rule as triggers.dualsensectl_error, kept as a local copy
+    because this file can't import triggers/evdev)."""
+    stderr = (result.stderr or "").strip()
+    if result.returncode != 0:
+        return stderr or "dualsensectl failed"
+    if "hid_write" in stderr.lower():
+        return stderr
+    return None
+
+
 def _dualsensectl_prefix():
     """Mirrors triggers.py's own helper (not importable here - see module
     docstring, triggers.py pulls in evdev via haptics_engine). Targets the
@@ -395,7 +408,9 @@ class Plugin:
             result = subprocess.run(args, capture_output=True, text=True, timeout=3)
         except (OSError, subprocess.TimeoutExpired):
             return False
-        if result.returncode != 0:
+        error = _dualsensectl_error(result)
+        if error:
+            decky.logger.warning(f"dualsensectl trigger command not delivered: {error}")
             return False
         raw = _read_config() or {}
         raw[f"trigger_preset_{side}"] = preset_id
@@ -409,7 +424,9 @@ class Plugin:
                 capture_output=True, text=True, timeout=3)
         except (OSError, subprocess.TimeoutExpired):
             return False
-        if result.returncode != 0:
+        error = _dualsensectl_error(result)
+        if error:
+            decky.logger.warning(f"dualsensectl trigger command not delivered: {error}")
             return False
         raw = _read_config() or {}
         raw[f"trigger_preset_{side}"] = None
@@ -523,7 +540,9 @@ class Plugin:
                 capture_output=True, text=True, timeout=3)
         except (OSError, subprocess.TimeoutExpired):
             return False
-        if result.returncode != 0:
+        error = _dualsensectl_error(result)
+        if error:
+            decky.logger.warning(f"dualsensectl trigger command not delivered: {error}")
             return False
         raw = _read_config() or {}
         raw[f"trigger_preset_{side}"] = "custom" if mode != "off" else None
