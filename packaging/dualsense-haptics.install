@@ -29,4 +29,8 @@ post_remove() {
   # with this package, but only takes effect on the device's *next*
   # reconnect - the marker alone doesn't touch anything already locked).
   rm -f /run/dualsense-haptics/lock-real-device 2>/dev/null || true
+  # rmdir, not rm -rf: only ever removes it if it's actually empty (i.e.
+  # nothing unexpected is using it), leaving a genuinely stale/foreign
+  # directory alone rather than silently deleting it.
+  rmdir /run/dualsense-haptics 2>/dev/null || true
 }

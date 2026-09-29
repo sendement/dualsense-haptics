@@ -159,9 +159,16 @@ EOF
 set -e
 install -Dm755 "$HELPER_TMP" /usr/lib/dualsense-haptics/dualsense-hidlock
 getent group dualsense-haptics >/dev/null || groupadd -r dualsense-haptics
-setcap 'cap_fowner+ep' /usr/lib/dualsense-haptics/dualsense-hidlock
+# cap_dac_override (alongside cap_fowner) lets the helper open the real
+# DualSense's hidraw node on the app's behalf once
+# 72-dualsense-haptics-proxy-lock.rules has locked it to root:root, and
+# create/remove that rule's marker file under /run (also root:root) - see
+# the Arch .install hook's identical comment on this.
+setcap 'cap_fowner,cap_dac_override+ep' /usr/lib/dualsense-haptics/dualsense-hidlock
 install -Dm644 "$REPO_DIR/packaging/71-dualsense-haptics-uhid.rules" /usr/lib/udev/rules.d/71-dualsense-haptics-uhid.rules
+install -Dm644 "$REPO_DIR/packaging/72-dualsense-haptics-proxy-lock.rules" /usr/lib/udev/rules.d/72-dualsense-haptics-proxy-lock.rules
 udevadm control --reload-rules
+udevadm trigger --subsystem-match=misc --sysname-match=uhid
 udevadm trigger --subsystem-match=leds
 usermod -aG dualsense-haptics "$USER"
 EOF
