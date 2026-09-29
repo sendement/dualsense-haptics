@@ -235,6 +235,23 @@ class Plugin:
             _kill_stale_headless_runner()
             os.makedirs(decky.DECKY_PLUGIN_RUNTIME_DIR, exist_ok=True)
             env = dict(os.environ)
+            # This process itself is a PyInstaller-frozen executable (that's
+            # exactly why headless_runner.py exists as a separate, "normal"
+            # interpreter in the first place - see its own module docstring)
+            # - but PyInstaller still points LD_LIBRARY_PATH at its own
+            # extracted _MEI.../ bundle for as long as this process runs,
+            # and a plain dict(os.environ) copy hands that straight to the
+            # child. Confirmed on real hardware: the child's plain
+            # /usr/bin/python3 then preferred that bundle's own (older)
+            # libstdc++.so.6 over the system one, breaking shiboken6 (a
+            # GLIBCXX version mismatch) the moment config.py's import chain
+            # reached PySide6 - crashing headless_runner.py before it could
+            # even open the controller. Stripping these lets the child
+            # actually be the "outside that frozen process" environment its
+            # own docstring already assumes it's running in.
+            for key in ("LD_LIBRARY_PATH", "_PYI_APPLICATION_HOME_DIR",
+                        "_PYI_PARENT_PROCESS_LEVEL", "_PYI_LINUX_PROCESS_NAME"):
+                env.pop(key, None)
             # Decky's plugin process doesn't inherit a desktop session
             # environment, so parec/paplay/pactl (PipeWire/PulseAudio
             # clients) can't otherwise find the user's audio server socket.
@@ -246,15 +263,30 @@ class Plugin:
             # headless_runner.py child spawned below) know who to run as
             # too - PipeWire refuses a root client outright.
             try:
-                target_uid = pwd.getpwnam(decky.DECKY_USER).pw_uid
+                pw = pwd.getpwnam(decky.DECKY_USER)
+                target_uid = pw.pw_uid
+                # This sandboxed plugin process itself runs with no HOME/
+                # XDG_CONFIG_HOME at all (confirmed live: /proc/<pid>/environ
+                # is essentially bare) - decky.DECKY_USER's home is the only
+                # correct answer regardless, since config.py's own
+                # CONFIG_DIR always follows whichever HOME the *child* sees,
+                # not this already-root process's own (/root) - without
+                # this, headless_runner.py reads/writes an unrelated
+                # ~root/.config/dualsense-haptics/config.json instead of the
+                # actual user's, silently defaulting every setting
+                # (bt_hid_proxy included) back to DEFAULT_CONFIG every run.
+                env["HOME"] = pw.pw_dir
             except KeyError:
                 target_uid = os.getuid()
             env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{target_uid}")
             env["DUALSENSE_AUDIO_USER"] = decky.DECKY_USER
+            log_path = os.path.join(decky.DECKY_PLUGIN_RUNTIME_DIR, "engine.log")
+            log_file = open(log_path, "a")
             self.proc = subprocess.Popen(
                 ["/usr/bin/python3", RUNNER_PATH, decky.DECKY_PLUGIN_RUNTIME_DIR],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env,
+                stdout=log_file, stderr=log_file, env=env,
             )
+            log_file.close()
         return True
 
     async def stop_engine(self, _auto: bool = False) -> bool:
@@ -459,6 +491,16 @@ class Plugin:
     async def set_direct_audio_gain(self, value: float) -> bool:
         raw = _read_config() or {}
         raw.setdefault("active", {}).setdefault("direct_audio", {})["gain"] = value
+        _write_config(raw)
+        return True
+
+    async def get_bt_hid_proxy(self) -> dict:
+        raw = _read_config() or {}
+        return raw.get("active", {}).get("bt_hid_proxy", {"enabled": False})
+
+    async def set_bt_hid_proxy_enabled(self, value: bool) -> bool:
+        raw = _read_config() or {}
+        raw.setdefault("active", {}).setdefault("bt_hid_proxy", {})["enabled"] = value
         _write_config(raw)
         return True
 

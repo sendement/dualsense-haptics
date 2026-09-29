@@ -99,6 +99,8 @@ const STRINGS = {
         "trigger_right_title": "Right Trigger (R2)",
         "direct_audio_checkbox": "Play audio straight through the motors",
         "direct_audio_bt_checkbox": "Enable over Bluetooth (experimental)",
+        "bt_proxy_checkbox": "Enable trigger + vibration mix (experimental)",
+        "bt_proxy_hint": "Fixes Steam silently swallowing vibration in games with native adaptive-trigger support: clones the controller and merges Steam's trigger/lightbar writes with this app's own audio-reactive rumble, instead of the two fighting over the same device.",
         "label_bt_chunk_ms": "Audio chunk size (ms)",
         "led_visualizer_title": "Immersive Lighting",
         "led_visualizer_checkbox": "Enable Immersive Lighting",
@@ -205,6 +207,8 @@ const STRINGS = {
         "trigger_right_title": "Правый триггер (R2)",
         "direct_audio_checkbox": "Играть звук напрямую через моторы",
         "direct_audio_bt_checkbox": "Включить по Bluetooth (экспериментально)",
+        "bt_proxy_checkbox": "Включить микс триггеров и вибрации (экспериментально)",
+        "bt_proxy_hint": "Решает проблему, когда Steam незаметно глушит вибрацию в играх с поддержкой адаптивных триггеров: клонирует контроллер и смешивает записи Steam (триггеры/подсветку) с собственной аудио-реактивной вибрацией приложения, вместо того чтобы они боролись за одно устройство.",
         "label_bt_chunk_ms": "Размер аудио-чанка (мс)",
         "led_visualizer_title": "Иммерсивная подсветка",
         "led_visualizer_checkbox": "Включить иммерсивную подсветку",
@@ -311,6 +315,8 @@ const STRINGS = {
         "trigger_right_title": "右扳机 (R2)",
         "direct_audio_checkbox": "直接通过马达播放音频",
         "direct_audio_bt_checkbox": "通过蓝牙启用（实验性）",
+        "bt_proxy_checkbox": "启用扳机+震动混合（实验性）",
+        "bt_proxy_hint": "解决 Steam 在支持原生自适应扳机的游戏中悄悄吞掉震动的问题：克隆手柄，并将 Steam 写入的扳机/灯效数据与本应用自身的音频反应震动合并，而不是两者争抢同一设备。",
         "label_bt_chunk_ms": "音频块大小（毫秒）",
         "led_visualizer_title": "沉浸式灯光",
         "led_visualizer_checkbox": "启用沉浸式灯光",
@@ -417,6 +423,8 @@ const STRINGS = {
         "trigger_right_title": "Gatillo derecho (R2)",
         "direct_audio_checkbox": "Reproducir audio directamente en los motores",
         "direct_audio_bt_checkbox": "Activar por Bluetooth (experimental)",
+        "bt_proxy_checkbox": "Activar mezcla de gatillo + vibración (experimental)",
+        "bt_proxy_hint": "Soluciona que Steam silencie la vibración en juegos con soporte nativo de gatillos adaptativos: clona el mando y combina lo que Steam escribe (gatillos/luz) con la vibración propia de la app basada en el audio, en lugar de que ambos compitan por el mismo dispositivo.",
         "label_bt_chunk_ms": "Tamaño del bloque de audio (ms)",
         "led_visualizer_title": "Iluminación inmersiva",
         "led_visualizer_checkbox": "Activar iluminación inmersiva",
@@ -523,6 +531,8 @@ const STRINGS = {
         "trigger_right_title": "Rechter Trigger (R2)",
         "direct_audio_checkbox": "Audio direkt über die Motoren abspielen",
         "direct_audio_bt_checkbox": "Über Bluetooth aktivieren (experimentell)",
+        "bt_proxy_checkbox": "Trigger- + Vibrations-Mix aktivieren (experimentell)",
+        "bt_proxy_hint": "Behebt, dass Steam die Vibration in Spielen mit nativer Unterstützung für adaptive Trigger stillschweigend verschluckt: klont den Controller und mischt Steams Trigger-/Lightbar-Schreibvorgänge mit der eigenen audioreaktiven Vibration der App, statt dass beide um dasselbe Gerät konkurrieren.",
         "label_bt_chunk_ms": "Audio-Chunkgröße (ms)",
         "led_visualizer_title": "Immersive Beleuchtung",
         "led_visualizer_checkbox": "Immersive Beleuchtung aktivieren",
@@ -629,6 +639,8 @@ const STRINGS = {
         "trigger_right_title": "Gâchette droite (R2)",
         "direct_audio_checkbox": "Jouer l'audio directement sur les moteurs",
         "direct_audio_bt_checkbox": "Activer par Bluetooth (expérimental)",
+        "bt_proxy_checkbox": "Activer le mixage gâchette + vibration (expérimental)",
+        "bt_proxy_hint": "Corrige le fait que Steam avale silencieusement la vibration dans les jeux avec prise en charge native des gâchettes adaptatives : clone la manette et mélange ce que Steam écrit (gâchettes/rétroéclairage) avec la vibration réactive à l'audio de l'application, au lieu que les deux se disputent le même périphérique.",
         "label_bt_chunk_ms": "Taille du bloc audio (ms)",
         "led_visualizer_title": "Éclairage immersif",
         "led_visualizer_checkbox": "Activer l'éclairage immersif",
@@ -735,6 +747,8 @@ const STRINGS = {
         "trigger_right_title": "右トリガー (R2)",
         "direct_audio_checkbox": "音声をモーターに直接再生する",
         "direct_audio_bt_checkbox": "Bluetoothで有効にする（実験的機能）",
+        "bt_proxy_checkbox": "トリガー+振動ミックスを有効にする（実験的機能）",
+        "bt_proxy_hint": "ネイティブのアダプティブトリガー対応ゲームでSteamが振動を静かに無効化してしまう問題を解決します。コントローラーを複製し、Steamが書き込むトリガー/ライトバーの内容と本アプリ自身のオーディオ反応振動を統合します（同じデバイスを奪い合う代わりに）。",
         "label_bt_chunk_ms": "オーディオチャンクサイズ（ms）",
         "led_visualizer_title": "没入型ライティング",
         "led_visualizer_checkbox": "没入型ライティングを有効にする",
@@ -841,6 +855,8 @@ const STRINGS = {
         "trigger_right_title": "Gatilho direito (R2)",
         "direct_audio_checkbox": "Reproduzir áudio diretamente nos motores",
         "direct_audio_bt_checkbox": "Ativar via Bluetooth (experimental)",
+        "bt_proxy_checkbox": "Ativar mix de gatilho + vibração (experimental)",
+        "bt_proxy_hint": "Corrige o Steam silenciosamente engolindo a vibração em jogos com suporte nativo a gatilhos adaptativos: clona o controle e combina o que o Steam escreve (gatilhos/luz) com a vibração reativa ao áudio do próprio app, em vez de os dois disputarem o mesmo dispositivo.",
         "label_bt_chunk_ms": "Tamanho do bloco de áudio (ms)",
         "led_visualizer_title": "Iluminação imersiva",
         "led_visualizer_checkbox": "Ativar iluminação imersiva",
@@ -947,6 +963,8 @@ const STRINGS = {
         "trigger_right_title": "오른쪽 트리거 (R2)",
         "direct_audio_checkbox": "오디오를 모터로 직접 재생",
         "direct_audio_bt_checkbox": "블루투스로 활성화 (실험적)",
+        "bt_proxy_checkbox": "트리거 + 진동 믹스 활성화 (실험적)",
+        "bt_proxy_hint": "네이티브 어댑티브 트리거를 지원하는 게임에서 Steam이 진동을 조용히 삼켜버리는 문제를 해결합니다. 컨트롤러를 복제하여 Steam이 기록하는 트리거/조명 데이터를 앱 자체의 오디오 반응 진동과 병합합니다 (같은 장치를 두고 경쟁하는 대신).",
         "label_bt_chunk_ms": "오디오 청크 크기 (ms)",
         "led_visualizer_title": "몰입형 조명",
         "led_visualizer_checkbox": "몰입형 조명 활성화",
@@ -1082,6 +1100,8 @@ const setDirectAudioEnabled = callable("set_direct_audio_enabled");
 const setDirectAudioBtEnabled = callable("set_direct_audio_bt_enabled");
 const setBtChunkMs = callable("set_bt_chunk_ms");
 const setDirectAudioGain = callable("set_direct_audio_gain");
+const getBtHidProxy = callable("get_bt_hid_proxy");
+const setBtHidProxyEnabled = callable("set_bt_hid_proxy_enabled");
 const getGameProfilesEnabled = callable("get_game_profiles_enabled");
 const setGameProfilesEnabled = callable("set_game_profiles_enabled");
 const getBandSettings = callable("get_band_settings");
@@ -1337,6 +1357,19 @@ function DirectAudioSection({ t }) {
     };
     return (SP_JSX.jsxs(CollapsibleSection, { title: t("direct_audio_title"), t: t, children: [SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: `USB — ${t("direct_audio_checkbox")}`, checked: directAudio.enabled, onChange: onUsbToggle }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: t("direct_audio_bt_checkbox"), checked: directAudio.bt_enabled, onChange: onBtToggle }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.SliderField, { label: t("label_direct_gain"), value: directAudio.gain, min: 1.0, max: 8.0, step: 0.1, notchTicksVisible: false, onChange: onGainChange }) }), SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.DropdownItem, { label: t("label_bt_chunk_ms"), rgOptions: BT_CHUNK_MS_CHOICES.map((v) => ({ data: v, label: `${v} ms` })), selectedOption: directAudio.bt_chunk_ms, onChange: onChunkMsChange }) })] }));
 }
+function BtHidProxySection({ t }) {
+    const [btHidProxy, setBtHidProxyState] = SP_REACT.useState({ enabled: false });
+    SP_REACT.useEffect(() => {
+        (async () => {
+            setBtHidProxyState(await getBtHidProxy());
+        })();
+    }, []);
+    const onToggle = async (value) => {
+        setBtHidProxyState({ enabled: value });
+        await setBtHidProxyEnabled(value);
+    };
+    return (SP_JSX.jsx(DFL.PanelSection, { title: t("group_bt_proxy"), children: SP_JSX.jsx(DFL.PanelSectionRow, { children: SP_JSX.jsx(DFL.ToggleField, { label: t("bt_proxy_checkbox"), description: t("bt_proxy_hint"), checked: btHidProxy.enabled, onChange: onToggle }) }) }));
+}
 function LedVisualizerSection({ t }) {
     const [led, setLed] = SP_REACT.useState({ enabled: false, attack: 0.5, release: 0.08, gamma: 1.8, bass_priority: 0.6 });
     const [detailsOpen, setDetailsOpen] = SP_REACT.useState(false);
@@ -1565,7 +1598,7 @@ function Root() {
         setLang(code);
         await setLanguage(code);
     };
-    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(MainSection, { t: t$1 }), SP_JSX.jsx(GameProfilesSection, { t: t$1 }), SP_JSX.jsx(TriggersSection, { t: t$1 }), SP_JSX.jsx(CustomTriggerCard, { side: "left", label: t$1("trigger_left_title"), t: t$1 }), SP_JSX.jsx(CustomTriggerCard, { side: "right", label: t$1("trigger_right_title"), t: t$1 }), SP_JSX.jsx(DirectAudioSection, { t: t$1 }), SP_JSX.jsx(LedVisualizerSection, { t: t$1 }), SP_JSX.jsx(BandSection, { band: "bass", title: t$1("group_bass"), t: t$1 }), SP_JSX.jsx(BandSection, { band: "treble", title: t$1("group_treble"), t: t$1 }), SP_JSX.jsx(ButtonHapticsSection, { t: t$1 }), SP_JSX.jsx(SettingsSection, { lang: lang, onLangChange: onLangChange, t: t$1 })] }));
+    return (SP_JSX.jsxs(SP_JSX.Fragment, { children: [SP_JSX.jsx(MainSection, { t: t$1 }), SP_JSX.jsx(GameProfilesSection, { t: t$1 }), SP_JSX.jsx(TriggersSection, { t: t$1 }), SP_JSX.jsx(CustomTriggerCard, { side: "left", label: t$1("trigger_left_title"), t: t$1 }), SP_JSX.jsx(CustomTriggerCard, { side: "right", label: t$1("trigger_right_title"), t: t$1 }), SP_JSX.jsx(DirectAudioSection, { t: t$1 }), SP_JSX.jsx(BtHidProxySection, { t: t$1 }), SP_JSX.jsx(LedVisualizerSection, { t: t$1 }), SP_JSX.jsx(BandSection, { band: "bass", title: t$1("group_bass"), t: t$1 }), SP_JSX.jsx(BandSection, { band: "treble", title: t$1("group_treble"), t: t$1 }), SP_JSX.jsx(ButtonHapticsSection, { t: t$1 }), SP_JSX.jsx(SettingsSection, { lang: lang, onLangChange: onLangChange, t: t$1 })] }));
 }
 var index = definePlugin(() => {
     (async () => {

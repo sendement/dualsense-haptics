@@ -324,6 +324,56 @@ def _audio_subprocess_prefix():
     return ["sudo", "-u", user, "env", f"XDG_RUNTIME_DIR=/run/user/{uid}"]
 
 
+# Sentinel for HapticsEngine's capture_source dict - see _capture_source()
+# and _active_sink_monitor(). Never produced by the desktop app's own App
+# Audio Binding (see app_audio_binding.py), only by deck-plugin/py_modules/
+# headless_runner.py.
+_AUTO_ACTIVE_SINK = "auto"
+
+# How often _capture_source() re-polls pactl for the auto-follow mode below
+# - cheap enough to just do on a timer rather than caring about every single
+# session loop's own tick cadence, but far from free (a subprocess spawn),
+# so not once per tick either.
+AUTO_SINK_REFRESH_S = 2.0
+
+
+def _active_sink_monitor(audio_prefix, current=None):
+    """Picks whichever sink pactl reports as RUNNING (a stream is actually
+    flowing into it right now) over blindly trusting @DEFAULT_SINK@ -
+    confirmed on real hardware (Deck plugin, gamescope) that gamescope's own
+    nested session can route a game's audio to a sink PipeWire's own
+    "default" disagrees with, silently starving capture of any real data
+    while parec itself stays alive and reports nothing wrong (nothing to
+    read is not an error). `current` (this engine's last-chosen monitor
+    name, if any) is preferred over switching to a different RUNNING sink
+    picked in arbitrary pactl order, so two sinks that are both
+    legitimately RUNNING at once (e.g. a game plus a notification sound)
+    don't fight over which one gets captured on every refresh. Best-effort:
+    any failure (pactl missing, no RUNNING sink, timeout) falls back to the
+    literal @DEFAULT_SINK@.monitor - the same thing this exists to improve
+    on, never worse."""
+    try:
+        result = subprocess.run(
+            audio_prefix + ["pactl", "list", "sinks", "short"],
+            capture_output=True, text=True, timeout=1,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return current or "@DEFAULT_SINK@.monitor"
+    if result.returncode != 0:
+        return current or "@DEFAULT_SINK@.monitor"
+    running = []
+    for line in result.stdout.splitlines():
+        fields = line.split("\t")
+        if len(fields) >= 5 and fields[4] == "RUNNING":
+            running.append(fields[1])
+    if not running:
+        return "@DEFAULT_SINK@.monitor"
+    current_name = (current or "")[:-len(".monitor")] if (current or "").endswith(".monitor") else None
+    if current_name in running:
+        return current
+    return f"{running[0]}.monitor"
+
+
 def find_ff_device():
     for path in evdev.list_devices():
         try:
@@ -713,10 +763,23 @@ class _SaxenseWriter:
             sleep_for = next_tick - time.monotonic()
             if sleep_for > 0:
                 time.sleep(sleep_for)
-            elif sleep_for < -0.5:
+            elif sleep_for < -3 * saxense_algo.TICK_INTERVAL_S:
                 # Badly behind (thread starved, or audio was stalled for a
                 # while) - resync instead of bursting through a pile of
-                # backlogged ticks all at once.
+                # backlogged ticks all at once. This has to be just a few
+                # ticks, not a fixed fraction of a second: _MAX_BUFFERED_BYTES
+                # caps how much can ever actually be queued at ~10 ticks'
+                # worth (~106ms) - confirmed on real hardware (Deck/gamescope,
+                # never reproduced on a quiet desktop) that the old 500ms
+                # threshold was so far above that cap it could never fire in
+                # practice, so any starvation beyond a couple of ticks (a
+                # nested compositor plus an actual game plus Steam's own
+                # workload contending for the CPU, none of which a quiet
+                # desktop session creates) instead burned through the whole
+                # buffered backlog write-after-write with no sleep between
+                # them - felt as a vibration "echo" bearing no relation to
+                # bt_chunk_ms, which only sizes the *producer* side's parec
+                # reads, not this consumer thread's own tick cadence.
                 next_tick = time.monotonic()
 
             sample = self._take_sample()
@@ -878,13 +941,18 @@ class HapticsEngine(threading.Thread):
     def __init__(self, config, capture_source=None):
         super().__init__(daemon=True, name="HapticsEngine")
         self.config = config
-        # Desktop-only (see app_audio_binding.py) - a plain mutable dict, not
-        # part of `config`/state, so a narrowed capture source never gets
-        # deep-copied into a saved profile (config.save_current() only ever
-        # copies `state["active"]`). Optional/defaulted so callers that never
-        # narrow anything (e.g. the Decky plugin's headless_runner.py) don't
-        # need to know this exists.
+        # A plain mutable dict, not part of `config`/state, so a narrowed
+        # capture source never gets deep-copied into a saved profile
+        # (config.save_current() only ever copies `state["active"]`).
+        # Optional/defaulted so callers that never narrow anything don't
+        # need to know this exists. Two producers: the desktop app's App
+        # Audio Binding (see app_audio_binding.py) narrows `source` to a
+        # specific sink-input's own monitor; deck-plugin/py_modules/
+        # headless_runner.py instead passes the _AUTO_ACTIVE_SINK sentinel
+        # (see _capture_source()/_active_sink_monitor()), since it has no
+        # per-app binding of its own to begin with.
         self.capture_source = capture_source if capture_source is not None else {"source": None}
+        self._auto_sink_cache = [None, 0.0]
         self.status_queue = queue.Queue()
         self.level_queue = queue.Queue(maxsize=1)
         self.connection_queue = queue.Queue(maxsize=1)
@@ -903,8 +971,22 @@ class HapticsEngine(threading.Thread):
         re-read every chunk by each session loop's own while-condition so a
         narrowed (or widened-back) capture source takes effect by respawning
         parec in place, the same way a stall respawn already does, without
-        tearing down the controller connection. See app_audio_binding.py."""
-        return self.capture_source.get("source") or "@DEFAULT_SINK@.monitor"
+        tearing down the controller connection. See app_audio_binding.py.
+
+        The _AUTO_ACTIVE_SINK sentinel (deck-plugin only - see __init__)
+        instead re-polls pactl for whichever sink is actually RUNNING right
+        now, at most once every AUTO_SINK_REFRESH_S rather than on every
+        call - a subprocess spawn on every single tick's while-condition
+        would be its own new performance problem."""
+        source = self.capture_source.get("source")
+        if source == _AUTO_ACTIVE_SINK:
+            now = time.monotonic()
+            cache = self._auto_sink_cache
+            if now - cache[1] > AUTO_SINK_REFRESH_S:
+                cache[0] = _active_sink_monitor(_audio_subprocess_prefix(), cache[0])
+                cache[1] = now
+            return cache[0] or "@DEFAULT_SINK@.monitor"
+        return source or "@DEFAULT_SINK@.monitor"
 
     def stop(self):
         self._stop_event.set()
@@ -1629,7 +1711,7 @@ class HapticsEngine(threading.Thread):
             self._bt_proxy_session = bt_hid_proxy.BtHidProxySession()
         session = self._bt_proxy_session
         try:
-            session.attach()
+            kicked = session.attach()
         except bt_hid_proxy.ProxyUnavailable:
             self._emit_status("bt_proxy_unavailable")
             backoff = getattr(self, "_bt_proxy_backoff", 5)
@@ -1638,6 +1720,24 @@ class HapticsEngine(threading.Thread):
             self._session_fallback(dev, "bluetooth")
             return
         self._bt_proxy_backoff = 5
+
+        if kicked:
+            # attach()'s one-time kick (unbind/bind, see _kick_real_device())
+            # just destroyed and recreated the real device's whole hid
+            # instance, which invalidates `dev` if it's still the real
+            # device's own evdev handle - only possible for root/Deck, where
+            # nothing ever forces run() off the real device's evdev onto the
+            # clone's the way the desktop lock does for an unprivileged
+            # process (see find_ff_device()/find_clone_ff_device()).
+            # Confirmed crashing _init_analog_raw()'s dev.absinfo() with
+            # ENODEV immediately otherwise.
+            try:
+                dev.close()
+            except OSError:
+                pass
+            fresh_dev = find_ff_device()
+            if fresh_dev is not None:
+                dev = fresh_dev
 
         try:
             # Loops between the two rumble techniques without detaching the

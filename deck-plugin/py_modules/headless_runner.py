@@ -40,16 +40,15 @@ def main():
         f.write(str(os.getpid()))
 
     state = load_state()
-    # Trigger + Vibration Mix (bt_hid_proxy) was pulled from the Decky UI/RPC
-    # entirely - see main.py/index.tsx - after live testing showed Steam's
-    # own controller detection can't tell the proxy clone apart from the
-    # real pad, producing a duplicate icon with doubled inputs. Config files
-    # only ever gain keys, never lose stale ones, so a config.json saved
-    # while that toggle still existed (or hand-edited) can still carry
-    # bt_hid_proxy.enabled: true with no UI left to turn it back off - force
-    # it off here unconditionally rather than trust what's on disk.
-    state["active"]["bt_hid_proxy"] = {"enabled": False}
-    engine = HapticsEngine(state["active"])
+    # No per-app audio binding of its own on this side (see
+    # app_audio_binding.py) - "auto" instead has the engine itself follow
+    # whichever sink pactl reports as actually RUNNING (see
+    # HapticsEngine._capture_source()/_active_sink_monitor()), rather than
+    # blindly trusting @DEFAULT_SINK@. Confirmed on real hardware that
+    # gamescope's own nested session can route a game's audio to a sink
+    # PipeWire's own "default" disagrees with, silently starving capture of
+    # any real data.
+    engine = HapticsEngine(state["active"], capture_source={"source": "auto"})
     engine.start()
 
     stop_event = threading.Event()
@@ -80,7 +79,6 @@ def main():
                     state["active"].update(fresh["active"])
                     for key in stale_keys:
                         del state["active"][key]
-                    state["active"]["bt_hid_proxy"] = {"enabled": False}
             except OSError:
                 pass
 

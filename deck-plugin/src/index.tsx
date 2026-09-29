@@ -29,6 +29,10 @@ interface DirectAudio {
   bt_chunk_ms: number;
 }
 
+interface BtHidProxy {
+  enabled: boolean;
+}
+
 interface BandSettings {
   lo: number;
   hi: number;
@@ -108,6 +112,9 @@ const setDirectAudioEnabled = callable<[value: boolean], boolean>("set_direct_au
 const setDirectAudioBtEnabled = callable<[value: boolean], boolean>("set_direct_audio_bt_enabled");
 const setBtChunkMs = callable<[value: number], boolean>("set_bt_chunk_ms");
 const setDirectAudioGain = callable<[value: number], boolean>("set_direct_audio_gain");
+
+const getBtHidProxy = callable<[], BtHidProxy>("get_bt_hid_proxy");
+const setBtHidProxyEnabled = callable<[value: boolean], boolean>("set_bt_hid_proxy_enabled");
 
 const getGameProfilesEnabled = callable<[], boolean>("get_game_profiles_enabled");
 const setGameProfilesEnabled = callable<[value: boolean], boolean>("set_game_profiles_enabled");
@@ -528,6 +535,34 @@ function DirectAudioSection({ t }: { t: (key: string) => string }) {
   );
 }
 
+function BtHidProxySection({ t }: { t: (key: string) => string }) {
+  const [btHidProxy, setBtHidProxyState] = useState<BtHidProxy>({ enabled: false });
+
+  useEffect(() => {
+    (async () => {
+      setBtHidProxyState(await getBtHidProxy());
+    })();
+  }, []);
+
+  const onToggle = async (value: boolean) => {
+    setBtHidProxyState({ enabled: value });
+    await setBtHidProxyEnabled(value);
+  };
+
+  return (
+    <PanelSection title={t("group_bt_proxy")}>
+      <PanelSectionRow>
+        <ToggleField
+          label={t("bt_proxy_checkbox")}
+          description={t("bt_proxy_hint")}
+          checked={btHidProxy.enabled}
+          onChange={onToggle}
+        />
+      </PanelSectionRow>
+    </PanelSection>
+  );
+}
+
 function LedVisualizerSection({ t }: { t: (key: string) => string }) {
   const [led, setLed] = useState<LedVisualizer>({ enabled: false, attack: 0.5, release: 0.08, gamma: 1.8, bass_priority: 0.6 });
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -945,6 +980,7 @@ function Root() {
       <CustomTriggerCard side="left" label={t("trigger_left_title")} t={t} />
       <CustomTriggerCard side="right" label={t("trigger_right_title")} t={t} />
       <DirectAudioSection t={t} />
+      <BtHidProxySection t={t} />
       <LedVisualizerSection t={t} />
       <BandSection band="bass" title={t("group_bass")} t={t} />
       <BandSection band="treble" title={t("group_treble")} t={t} />

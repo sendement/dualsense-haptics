@@ -23,12 +23,43 @@ class TestKickRealDevice:
     revoke an already-open fd, only block new opens. Best-effort by design:
     a failure here must never block attach() from proceeding anyway."""
 
-    def test_root_never_shells_out(self, monkeypatch):
+    def test_root_writes_unbind_then_bind_directly_no_subprocess(self, monkeypatch):
+        """Root (the Deck plugin) needs this exactly as much as an
+        unprivileged desktop process does - an already-open fd survives a
+        root chmod too - but it can do the unbind/bind itself, no setcap'd
+        helper involved."""
         monkeypatch.setattr(bt.os, "geteuid", lambda: 0)
-        calls = []
-        monkeypatch.setattr(bt.subprocess, "run", lambda *a, **k: calls.append(a))
+        subprocess_calls = []
+        monkeypatch.setattr(bt.subprocess, "run", lambda *a, **k: subprocess_calls.append(a))
+
+        writes = []
+
+        class FakeFile:
+            def __init__(self, path):
+                self.path = path
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                return False
+            def write(self, data):
+                writes.append((self.path, data))
+
+        monkeypatch.setattr(bt, "open", lambda path, mode: FakeFile(path), raising=False)
         bt._kick_real_device("/sys/bus/hid/devices/0005:054C:0CE6.0010")
-        assert calls == []
+
+        assert subprocess_calls == []
+        assert writes == [
+            ("/sys/bus/hid/drivers/playstation/unbind", "0005:054C:0CE6.0010"),
+            ("/sys/bus/hid/drivers/playstation/bind", "0005:054C:0CE6.0010"),
+        ]
+
+    def test_root_write_failure_does_not_raise(self, monkeypatch, capsys):
+        monkeypatch.setattr(bt.os, "geteuid", lambda: 0)
+        def raise_it(path, mode):
+            raise OSError("Отказано в доступе")
+        monkeypatch.setattr(bt, "open", raise_it, raising=False)
+        bt._kick_real_device("/sys/bus/hid/devices/0005:054C:0CE6.0010")  # must not raise
+        assert "kick-real" in capsys.readouterr().out
 
     def test_unprivileged_asks_the_helper_for_this_exact_device(self, monkeypatch):
         monkeypatch.setattr(bt.os, "geteuid", lambda: 1000)

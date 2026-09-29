@@ -627,10 +627,12 @@ def make_privilege_backend():
 # (SIGKILL) can never leave the real device permanently locked past reboot -
 # see also recover_stale_lock(), the equivalent cleanup for bt_hid_lock.json.
 #
-# Root (the Deck plugin) never needs this: it can open/chmod the real device
-# directly at any time regardless of ordering, so there's no reconnect race
-# to close in the first place, and the udev rule/helper mode below don't
-# exist there.
+# Root (the Deck plugin) never needs this marker or the udev rule it
+# drives: it can open/chmod the real device directly at any time regardless
+# of ordering, so there's no *reconnect* race to close in the first place.
+# _kick_real_device() further down is the one piece of this whole section
+# root does still need - a fd already open from before this session existed
+# survives a root chmod exactly as well as an unprivileged one.
 def _set_real_device_lock_marker(enabled):
     if os.geteuid() == 0:
         return
@@ -645,13 +647,26 @@ def _kick_real_device(sys_path):
     """Forces the kernel to destroy and recreate the real device's hid
     instance at `sys_path` (see BtHidProxySession.attach()'s own comment on
     why: chmod alone can't revoke a fd Steam already had open on it from
-    before this session's marker ever existed). Best-effort: a failure here
-    just leaves attach() to proceed against whatever's already there,
-    exactly like before this existed - no worse than the pre-existing race,
-    never a reason to give up on attaching altogether."""
-    if os.geteuid() == 0:
-        return
+    before this session ever got a chance to lock it out - true for root
+    (the Deck plugin, where Steam Input in Gaming Mode is often already
+    running and can grab a newly-connected controller before this plugin's
+    own engine even starts) exactly as much as for an unprivileged desktop
+    process; only *how* the node gets locked out afterward differs by
+    privilege level, not whether an already-open fd survives a plain
+    chmod - it always does. Best-effort: a failure here just leaves
+    attach() to proceed against whatever's already there, exactly like
+    before this existed - no worse than the pre-existing race, never a
+    reason to give up on attaching altogether."""
     device_id = os.path.basename(sys_path)
+    driver_dir = "/sys/bus/hid/drivers/playstation"
+    if os.geteuid() == 0:
+        try:
+            for action in ("unbind", "bind"):
+                with open(f"{driver_dir}/{action}", "w") as f:
+                    f.write(device_id)
+        except OSError as e:
+            print(f"[bt_hid_proxy] kick-real {device_id} failed: {e}", flush=True)
+        return
     try:
         result = subprocess.run([HELPER_PATH, "kick-real", device_id],
                                 capture_output=True, text=True, timeout=3)
@@ -912,9 +927,17 @@ class BtHidProxySession:
         HapticsEngine._service_bt_proxy_idle()) and the regular per-
         connection caller (HapticsEngine._session_bt_proxy()) can both call
         this without either one leaking the other's fd or clobbering the
-        recorded original permissions with the already-locked (0600) mode."""
+        recorded original permissions with the already-locked (0600) mode.
+
+        Returns whether this call performed the one-time kick below - the
+        unbind/bind invalidates every fd already open against the real
+        device's old hid instance, including one the caller itself may be
+        holding (see HapticsEngine._session_bt_proxy(), the only caller that
+        still can be - true only for root/Deck, since an unprivileged
+        process was already forced off the real device's evdev by the lock
+        before this point)."""
         if self.real_fd is not None:
-            return
+            return False
 
         def _find_with_retries():
             # A few short retries: launching a game can make Steam Input
@@ -944,17 +967,21 @@ class BtHidProxySession:
         if not sys_path:
             raise ProxyUnavailable("real DualSense hid instance not found")
 
-        if not self._kicked_real_device_once and os.geteuid() != 0:
-            # Only ever needed once per session: from here on the marker set
-            # in __init__ has been in place for every reconnect since, so
-            # 72-dualsense-haptics-proxy-lock.rules has already had a chance
-            # to lock each one down the instant it (re)appeared - but *this*
-            # first real device could easily have been sitting there (and
-            # already opened by Steam) since before this session, and
-            # before the marker, ever existed. Re-finds it fresh afterward -
-            # the unbind/bind this does destroys and recreates every node
-            # under it, so sys_path/nodes from above are now stale.
+        kicked = False
+        if not self._kicked_real_device_once:
+            # Only ever needed once per session, root (the Deck plugin)
+            # included - see _kick_real_device's own docstring for why this
+            # isn't desktop-only. From here on this session's own lock (the
+            # marker for an unprivileged process, or just this process's own
+            # standing ability to chmod/open at will for root) has been in
+            # place for every reconnect since, but *this* first real device
+            # could easily have been sitting there - and already opened by
+            # Steam/Steam Input - since before this session ever existed.
+            # Re-finds it fresh afterward - the unbind/bind this does
+            # destroys and recreates every node under it, so sys_path/nodes
+            # from above are now stale.
             self._kicked_real_device_once = True
+            kicked = True
             _kick_real_device(sys_path)
             sys_path, nodes = _find_with_retries()
             if not sys_path:
@@ -1042,6 +1069,7 @@ class BtHidProxySession:
                 raise ProxyUnavailable(f"clone setup failed: {e}") from e
 
         write_lock_state(self._original_modes, os.getpid())
+        return kicked
 
     def detach(self):
         """Releases the real device only - the uhid clone stays alive (see
