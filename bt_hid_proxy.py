@@ -641,6 +641,27 @@ def _set_real_device_lock_marker(enabled):
         pass  # best-effort - the per-reconnect chmod lock below still applies
 
 
+def _kick_real_device(sys_path):
+    """Forces the kernel to destroy and recreate the real device's hid
+    instance at `sys_path` (see BtHidProxySession.attach()'s own comment on
+    why: chmod alone can't revoke a fd Steam already had open on it from
+    before this session's marker ever existed). Best-effort: a failure here
+    just leaves attach() to proceed against whatever's already there,
+    exactly like before this existed - no worse than the pre-existing race,
+    never a reason to give up on attaching altogether."""
+    if os.geteuid() == 0:
+        return
+    device_id = os.path.basename(sys_path)
+    try:
+        result = subprocess.run([HELPER_PATH, "kick-real", device_id],
+                                capture_output=True, text=True, timeout=3)
+        if result.returncode != 0:
+            print(f"[bt_hid_proxy] kick-real {device_id} failed: "
+                  f"{result.stderr.strip()}", flush=True)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"[bt_hid_proxy] kick-real {device_id} unavailable: {e}", flush=True)
+
+
 def open_real_device(path):
     """Opens the real DualSense's hidraw node for read/write, regardless of
     whether 72-dualsense-haptics-proxy-lock.rules has already locked it to
@@ -782,6 +803,12 @@ class BtHidProxySession:
         # starts wanting it, not just after attach() first succeeds, or that
         # first reconnect would race Steam exactly like before.
         _set_real_device_lock_marker(True)
+        # See attach()'s own use of this: the real device can already be
+        # connected (and already opened by Steam) from before the marker
+        # above ever existed, which the marker alone can't retroactively
+        # fix - only set once True, on the first attach() of this session's
+        # life, never again after.
+        self._kicked_real_device_once = False
         self.last_steam_report = bytearray(DEFAULT_OUTPUT_REPORT)
         self.last_input_report = None
         # Dedup cache for forward_trigger_only() - see there for why.
@@ -888,30 +915,51 @@ class BtHidProxySession:
         recorded original permissions with the already-locked (0600) mode."""
         if self.real_fd is not None:
             return
-        # A few short retries: launching a game can make Steam Input
-        # briefly renegotiate the controller's connection, during which the
-        # real hid instance's sysfs path can transiently disappear for well
-        # under a second - confirmed on real hardware that a single missed
-        # lookup right at that moment was enough to trip ProxyUnavailable's
-        # 30s fallback cooldown for something that had already resolved
-        # itself a moment later.
-        sys_path = None
-        nodes = []
-        for _ in range(5):
-            # Locking down permissions only needs the hidraw node to exist,
-            # not for hid-playstation's own probe() to have finished - see
-            # find_real_hid_sys_path()'s require_driver_bound docstring. The
-            # bus-level sys_path and its hidraw child can each lag slightly,
-            # so keep retrying until both are actually there rather than
-            # raising the moment the (still hidraw-less) sys_path shows up.
-            sys_path = find_real_hid_sys_path(require_driver_bound=False)
-            if sys_path:
-                nodes = real_device_nodes(sys_path)
-                if any("/hidraw" in n for n in nodes):
-                    break
-            time.sleep(0.2)
+
+        def _find_with_retries():
+            # A few short retries: launching a game can make Steam Input
+            # briefly renegotiate the controller's connection, during which
+            # the real hid instance's sysfs path can transiently disappear
+            # for well under a second - confirmed on real hardware that a
+            # single missed lookup right at that moment was enough to trip
+            # ProxyUnavailable's 30s fallback cooldown for something that had
+            # already resolved itself a moment later.
+            for _ in range(5):
+                # Locking down permissions only needs the hidraw node to
+                # exist, not for hid-playstation's own probe() to have
+                # finished - see find_real_hid_sys_path()'s
+                # require_driver_bound docstring. The bus-level sys_path and
+                # its hidraw child can each lag slightly, so keep retrying
+                # until both are actually there rather than raising the
+                # moment the (still hidraw-less) sys_path shows up.
+                path = find_real_hid_sys_path(require_driver_bound=False)
+                if path:
+                    found_nodes = real_device_nodes(path)
+                    if any("/hidraw" in n for n in found_nodes):
+                        return path, found_nodes
+                time.sleep(0.2)
+            return None, []
+
+        sys_path, nodes = _find_with_retries()
         if not sys_path:
             raise ProxyUnavailable("real DualSense hid instance not found")
+
+        if not self._kicked_real_device_once and os.geteuid() != 0:
+            # Only ever needed once per session: from here on the marker set
+            # in __init__ has been in place for every reconnect since, so
+            # 72-dualsense-haptics-proxy-lock.rules has already had a chance
+            # to lock each one down the instant it (re)appeared - but *this*
+            # first real device could easily have been sitting there (and
+            # already opened by Steam) since before this session, and
+            # before the marker, ever existed. Re-finds it fresh afterward -
+            # the unbind/bind this does destroys and recreates every node
+            # under it, so sys_path/nodes from above are now stale.
+            self._kicked_real_device_once = True
+            _kick_real_device(sys_path)
+            sys_path, nodes = _find_with_retries()
+            if not sys_path:
+                raise ProxyUnavailable("real DualSense hid instance not found after kick")
+
         real_path = next((n for n in nodes if "/hidraw" in n), None)
         if not real_path:
             raise ProxyUnavailable("no hidraw node under the real hid instance")

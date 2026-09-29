@@ -17,6 +17,43 @@ import pytest
 import bt_hid_proxy as bt
 
 
+class TestKickRealDevice:
+    """_kick_real_device() is what recovers a real device Steam already had
+    open from *before* the lock marker ever existed - chmod alone can never
+    revoke an already-open fd, only block new opens. Best-effort by design:
+    a failure here must never block attach() from proceeding anyway."""
+
+    def test_root_never_shells_out(self, monkeypatch):
+        monkeypatch.setattr(bt.os, "geteuid", lambda: 0)
+        calls = []
+        monkeypatch.setattr(bt.subprocess, "run", lambda *a, **k: calls.append(a))
+        bt._kick_real_device("/sys/bus/hid/devices/0005:054C:0CE6.0010")
+        assert calls == []
+
+    def test_unprivileged_asks_the_helper_for_this_exact_device(self, monkeypatch):
+        monkeypatch.setattr(bt.os, "geteuid", lambda: 1000)
+        calls = []
+        monkeypatch.setattr(bt.subprocess, "run",
+                            lambda cmd, **k: calls.append(cmd) or types.SimpleNamespace(returncode=0))
+        bt._kick_real_device("/sys/bus/hid/devices/0005:054C:0CE6.0010")
+        assert calls == [[bt.HELPER_PATH, "kick-real", "0005:054C:0CE6.0010"]]
+
+    def test_a_failed_helper_call_does_not_raise(self, monkeypatch, capsys):
+        monkeypatch.setattr(bt.os, "geteuid", lambda: 1000)
+        monkeypatch.setattr(bt.subprocess, "run", lambda *a, **k: types.SimpleNamespace(
+            returncode=1, stderr="not the real DualSense/Edge's own hid device"))
+        bt._kick_real_device("/sys/bus/hid/devices/0005:054C:0CE6.0010")  # must not raise
+        assert "kick-real" in capsys.readouterr().out
+
+    @pytest.mark.parametrize("exc", [OSError("no such helper"), subprocess.TimeoutExpired("cmd", 3)])
+    def test_a_launch_failure_does_not_raise(self, monkeypatch, exc):
+        monkeypatch.setattr(bt.os, "geteuid", lambda: 1000)
+        def raise_it(*a, **k):
+            raise exc
+        monkeypatch.setattr(bt.subprocess, "run", raise_it)
+        bt._kick_real_device("/sys/bus/hid/devices/0005:054C:0CE6.0010")  # must not raise
+
+
 class TestRealDeviceLockMarker:
     def test_root_never_shells_out(self, monkeypatch):
         monkeypatch.setattr(bt.os, "geteuid", lambda: 0)

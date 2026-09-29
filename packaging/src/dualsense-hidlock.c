@@ -7,11 +7,20 @@
  * and still open the real nodes itself despite that - without needing a
  * setuid-root binary or an interactive pkexec/sudo prompt on every toggle.
  *
- * Two modes, dispatched on argv[1]:
+ * Four modes, dispatched on argv[1]:
  *
  *   dualsense-hidlock <mode-octal> <path> [<path> ...]
  *     chmod every path to <mode-octal>. Used both to hide the real device's
- *     nodes (0600) and to restore their original mode afterwards.
+ *     nodes (0600) and to restore their original mode afterwards. Every
+ *     path is resolved with realpath(3) FIRST (closing a symlink-swap
+ *     TOCTOU trick), then must exactly match a hidraw or input-event/js/
+ *     mouse device node, then cross-checked against sysfs that it
+ *     genuinely belongs to a Sony DualSense/Edge - only then is it
+ *     touched. Never touches ownership (no CAP_CHOWN requested or needed).
+ *     Failures are per-path, not all-or-nothing: prints "OK <path>" or
+ *     "SKIP <path>: <reason>" per line, exits 0 if every path succeeded, 1
+ *     if some were skipped (so hiding 5 of 6 nodes isn't treated as total
+ *     failure by the caller).
  *
  *   dualsense-hidlock open-fd <path> <fd-number>
  *     Opens <path> O_RDWR (bypassing DAC via cap_dac_override - needed once
@@ -25,19 +34,29 @@
  *     open() call - the node's DAC permissions can stay root:root
  *     permanently, with no window where an unprivileged peer (Steam runs as
  *     the same OS user as this app, so no ordinary permission bits could
- *     ever tell the two apart) could open it instead.
+ *     ever tell the two apart) could open it instead. Same path validation
+ *     as chmod mode. Exits 0 only if the fd was both opened and sent.
  *
- * In both modes, every path is resolved with realpath(3) FIRST (closing a
- * symlink-swap TOCTOU trick), then the resolved path must exactly match a
- * hidraw or input-event/js/mouse device node, then cross-checked against
- * sysfs that it genuinely belongs to a Sony DualSense/Edge - only then is it
- * touched. Never touches ownership (no CAP_CHOWN requested or needed), never
- * invokes a shell. Chmod failures are per-path, not all-or-nothing: prints
- * "OK <path>" or "SKIP <path>: <reason>" per line, exits 0 if every path
- * succeeded, 1 if some were skipped (so hiding 5 of 6 nodes isn't treated as
- * total failure by the caller); open-fd exits 0 only if the fd was both
- * opened and sent. 2 for a usage/argument error in either mode (no action
- * taken at all).
+ *   dualsense-hidlock mark on|off
+ *     Creates or removes /run/dualsense-haptics/lock-real-device, the file
+ *     72-dualsense-haptics-proxy-lock.rules watches - needs cap_dac_override
+ *     too, since /run is root:root and this caller isn't. No device
+ *     validation: never touches a device node at all.
+ *
+ *   dualsense-hidlock kick-real <hid-device-id>
+ *     Unbinds then rebinds the real DualSense/Edge's own hid-bus device
+ *     (e.g. "0005:054C:0CE6.0010", never our own uhid clone - rejected by
+ *     the same sysfs cross-check chmod mode uses, just against the hid
+ *     device's own uevent instead of a hidraw/input child's), forcing the
+ *     kernel to destroy and recreate every node under it. The only way to
+ *     invalidate a file descriptor some other unprivileged process already
+ *     had open on it *before* the mark-on above ever existed to lock it
+ *     out in the first place (the controller was already connected, and
+ *     Steam had already opened it, before this app's proxy session even
+ *     started) - chmod alone can't revoke an already-open fd, only block
+ *     new opens.
+ *
+ * 2 for a usage/argument error in any mode (no action taken at all).
  */
 #include <errno.h>
 #include <fcntl.h>
@@ -117,6 +136,100 @@ static int input_node_is_dualsense(const char *resolved) {
     if (vf) fclose(vf);
     if (pf) fclose(pf);
     return ok;
+}
+
+/* "bus:vendor:product.instance" as the hid bus names its device
+ * directories (e.g. "0005:054C:0CE6.0010") - never anything containing '/'
+ * or '..' that could escape /sys/bus/hid/devices/ once concatenated in. */
+static int hid_device_id_shape_ok(const char *id) {
+    static regex_t re;
+    static int compiled = 0;
+    if (!compiled) {
+        regcomp(&re, "^[0-9A-Fa-f]{4}:[0-9A-Fa-f]{4}:[0-9A-Fa-f]{4}\\.[0-9A-Fa-f]+$",
+                REG_EXTENDED | REG_NOSUB);
+        compiled = 1;
+    }
+    return regexec(&re, id, 0, NULL, 0) == 0;
+}
+
+/* Only the REAL DualSense/Edge's own hid-bus device - never our own
+ * /dev/uhid clone (HID_PHYS=dualsense-haptics-proxy-clone), which unbinding
+ * would needlessly disturb (Steam's own clone-vs-real bookkeeping is
+ * exactly what the clone staying alive across reconnects is meant to avoid
+ * upsetting - see bt_hid_proxy.py's BtHidProxySession.attach()). */
+static int hid_device_id_is_real_dualsense(const char *id) {
+    if (!hid_device_id_shape_ok(id)) return 0;
+    char uevent_path[PATH_MAX];
+    snprintf(uevent_path, sizeof(uevent_path), "/sys/bus/hid/devices/%s/uevent", id);
+    char driver[32], hid_id[64], phys[128];
+    if (!read_line_matches(uevent_path, "DRIVER=", driver, sizeof(driver))
+            || strcmp(driver, "playstation") != 0) {
+        return 0;
+    }
+    if (!read_line_matches(uevent_path, "HID_ID=", hid_id, sizeof(hid_id))) return 0;
+    unsigned bus, vendor, product;
+    if (sscanf(hid_id, "%x:%x:%x", &bus, &vendor, &product) != 3) return 0;
+    if (bus != 0x0005u || vendor != SONY_VENDOR || !is_allowed_product(product)) return 0;
+    if (read_line_matches(uevent_path, "HID_PHYS=", phys, sizeof(phys))
+            && strcmp(phys, "dualsense-haptics-proxy-clone") == 0) {
+        return 0;
+    }
+    return 1;
+}
+
+/* Forces the kernel to destroy and recreate the real device's hid instance
+ * (hidraw + every input child) - the one way to invalidate a file
+ * descriptor some other, already-running unprivileged process (Steam,
+ * having opened it before 72-dualsense-haptics-proxy-lock.rules' marker
+ * ever existed - e.g. the controller was already connected when this app
+ * started) opened before we ever got a chance to lock it out. Confirmed
+ * live: chmod alone never revokes an already-open fd, only blocks *new*
+ * opens - and confirmed live that the instant this recreates the node,
+ * with the marker already in place (the caller sets it before ever calling
+ * this), the udev rule locks it before anyone, including a process that
+ * lost its old fd to this same unbind, can reopen it.
+ *
+ * "playstation" is the only driver name ever accepted, hardcoded - never
+ * taken from argv - so this can't be repurposed to unbind anything else. */
+static int run_kick_real_device(int argc, char **argv) {
+    if (argc != 3) {
+        fprintf(stderr, "usage: %s kick-real <hid-device-id>\n", argv[0]);
+        return 2;
+    }
+    const char *id = argv[2];
+    if (!hid_device_id_is_real_dualsense(id)) {
+        fprintf(stderr, "%s: not the real DualSense/Edge's own hid device\n", id);
+        return 1;
+    }
+    const char *driver_dir = "/sys/bus/hid/drivers/playstation";
+    char unbind_path[PATH_MAX], bind_path[PATH_MAX];
+    snprintf(unbind_path, sizeof(unbind_path), "%s/unbind", driver_dir);
+    snprintf(bind_path, sizeof(bind_path), "%s/bind", driver_dir);
+
+    int fd = open(unbind_path, O_WRONLY);
+    if (fd < 0) {
+        fprintf(stderr, "open %s failed: %s\n", unbind_path, strerror(errno));
+        return 1;
+    }
+    ssize_t n = write(fd, id, strlen(id));
+    close(fd);
+    if (n < 0 || (size_t)n != strlen(id)) {
+        fprintf(stderr, "unbind %s failed: %s\n", id, strerror(errno));
+        return 1;
+    }
+
+    fd = open(bind_path, O_WRONLY);
+    if (fd < 0) {
+        fprintf(stderr, "open %s failed: %s\n", bind_path, strerror(errno));
+        return 1;
+    }
+    n = write(fd, id, strlen(id));
+    close(fd);
+    if (n < 0 || (size_t)n != strlen(id)) {
+        fprintf(stderr, "bind %s failed: %s\n", id, strerror(errno));
+        return 1;
+    }
+    return 0;
 }
 
 static int path_shape_ok(const char *resolved, int *is_hidraw) {
@@ -288,10 +401,14 @@ int main(int argc, char **argv) {
     if (argc >= 2 && strcmp(argv[1], "mark") == 0) {
         return run_mark(argc, argv);
     }
+    if (argc >= 2 && strcmp(argv[1], "kick-real") == 0) {
+        return run_kick_real_device(argc, argv);
+    }
     if (argc < 3) {
         fprintf(stderr, "usage: %s <mode-octal> <path> [<path> ...]\n", argv[0]);
         fprintf(stderr, "       %s open-fd <path> <fd-number>\n", argv[0]);
         fprintf(stderr, "       %s mark on|off\n", argv[0]);
+        fprintf(stderr, "       %s kick-real <hid-device-id>\n", argv[0]);
         return 2;
     }
     return run_chmod(argc, argv);
