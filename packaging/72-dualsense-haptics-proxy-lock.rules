@@ -1,0 +1,36 @@
+# While Trigger + Vibration Mix wants exclusive control of the real
+# DualSense/Edge over Bluetooth (marked by the presence of
+# /run/dualsense-haptics/lock-real-device - see bt_hid_proxy.py), lock every
+# device node belonging to the REAL controller (never our own /dev/uhid
+# clone, tagged HID_PHYS=dualsense-haptics-proxy-clone) to root:root 0600
+# the instant it's created - before systemd's uaccess mechanism would
+# otherwise hand it to every logged-in user, Steam included. Bluetooth only
+# (HID bus 0005): the USB path never uses this proxy. Sorted after
+# 73-seat-late.rules (where the uaccess grant itself happens) so our MODE=
+# here is the one actually written to the node.
+#
+# Marker absent (feature off, or a controller connected before it was ever
+# turned on) - nothing here fires, every DualSense keeps its normal,
+# unrestricted permissions exactly as before this rule existed.
+
+ACTION!="add|change", GOTO="dualsense_haptics_proxy_lock_end"
+
+SUBSYSTEM=="hidraw", KERNELS=="0005:054C:0CE6.*|0005:054c:0ce6.*|0005:054C:0DF2.*|0005:054c:0df2.*", IMPORT{parent}="HID_*"
+SUBSYSTEM=="hidraw", ENV{HID_PHYS}=="dualsense-haptics-proxy-clone", GOTO="dualsense_haptics_proxy_lock_end"
+SUBSYSTEM=="hidraw", ENV{HID_ID}!="0005:0000054C:00000CE6", ENV{HID_ID}!="0005:0000054C:00000DF2", GOTO="dualsense_haptics_proxy_lock_end"
+
+SUBSYSTEM=="input", KERNEL!="event*", KERNEL!="js*", KERNEL!="mouse*", GOTO="dualsense_haptics_proxy_lock_end"
+# NOT ATTRS{phys}: confirmed live that hid-playstation's uhid-backed clone
+# reports an empty "phys" for its own input children (same as the real
+# device's - it isn't clone-specific at all), matching bt_hid_proxy.py's own
+# find_ff_device() comment on exactly this. "uniq" is what actually
+# distinguishes them - this is bt_hid_proxy.CLONE_UNIQ's value.
+SUBSYSTEM=="input", ATTRS{uniq}=="01:00:ef:be:ad:de", GOTO="dualsense_haptics_proxy_lock_end"
+SUBSYSTEM=="input", ATTRS{id/vendor}!="054c", GOTO="dualsense_haptics_proxy_lock_end"
+SUBSYSTEM=="input", ATTRS{id/product}!="0ce6", ATTRS{id/product}!="0df2", GOTO="dualsense_haptics_proxy_lock_end"
+
+TEST!="/run/dualsense-haptics/lock-real-device", GOTO="dualsense_haptics_proxy_lock_end"
+
+OWNER="root", GROUP="root", MODE="0600", TAG-="uaccess"
+
+LABEL="dualsense_haptics_proxy_lock_end"

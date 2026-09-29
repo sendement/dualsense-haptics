@@ -54,4 +54,6 @@ package() {
 
   install -Dm644 "$startdir/71-dualsense-haptics-uhid.rules" \
     "$pkgdir/usr/lib/udev/rules.d/71-dualsense-haptics-uhid.rules"
+  install -Dm644 "$startdir/72-dualsense-haptics-proxy-lock.rules" \
+    "$pkgdir/usr/lib/udev/rules.d/72-dualsense-haptics-proxy-lock.rules"
 }

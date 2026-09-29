@@ -1,6 +1,11 @@
 post_install() {
   getent group dualsense-haptics >/dev/null || groupadd -r dualsense-haptics
-  setcap 'cap_fowner+ep' /usr/lib/dualsense-haptics/dualsense-hidlock || \
+  # cap_dac_override (new alongside the existing cap_fowner) lets the helper
+  # open the real DualSense's hidraw node on the app's behalf even once
+  # 72-dualsense-haptics-proxy-lock.rules has locked it to root:root, and
+  # create/remove that rule's marker file under /run (also root:root) - see
+  # bt_hid_proxy.py's open_real_device()/_set_real_device_lock_marker().
+  setcap 'cap_fowner,cap_dac_override+ep' /usr/lib/dualsense-haptics/dualsense-hidlock || \
     echo ">>> Warning: setcap failed - the Bluetooth HID Proxy feature will be unavailable."
   udevadm control --reload-rules 2>/dev/null || true
   udevadm trigger --subsystem-match=misc --sysname-match=uhid 2>/dev/null || true
@@ -18,4 +23,10 @@ post_upgrade() {
 
 post_remove() {
   getent group dualsense-haptics >/dev/null && groupdel dualsense-haptics 2>/dev/null || true
+  # Tmpfs (/run), so this would disappear on its own at the next reboot
+  # regardless - removed now too so a real DualSense isn't left locked to
+  # root:root (72-dualsense-haptics-proxy-lock.rules is itself gone along
+  # with this package, but only takes effect on the device's *next*
+  # reconnect - the marker alone doesn't touch anything already locked).
+  rm -f /run/dualsense-haptics/lock-real-device 2>/dev/null || true
 }

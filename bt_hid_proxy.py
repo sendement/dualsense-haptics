@@ -13,6 +13,7 @@ shared, importable component (identical between the desktop app and the Decky
 plugin - see HapticsEngine._session_bt_proxy for the DSP/session loop that
 drives it).
 """
+import array
 import binascii
 import collections
 import colorsys
@@ -23,6 +24,7 @@ import math
 import os
 import queue
 import select
+import socket
 import struct
 import subprocess
 import threading
@@ -611,6 +613,86 @@ def make_privilege_backend():
     return RootPrivilegeBackend() if os.geteuid() == 0 else HelperPrivilegeBackend()
 
 
+# --- closing the reconnect race with Steam -----------------------------
+
+# 72-dualsense-haptics-proxy-lock.rules (packaging/) watches for this marker
+# and, only while it exists, locks the real DualSense's device nodes to
+# root:root the instant they're (re)created - synchronously, as udev
+# processes that event, before systemd's uaccess grant would otherwise hand
+# them to every logged-in user, Steam included. Without this, chmod'ing the
+# nodes ourselves after the fact (see PrivilegeBackend.lock()) is reliably
+# too slow to matter on a reconnect: confirmed on real hardware that Steam's
+# own reopen can win that race in under 100ms, well before an external
+# chmod helper process finishes starting. On tmpfs (/run) so an unclean exit
+# (SIGKILL) can never leave the real device permanently locked past reboot -
+# see also recover_stale_lock(), the equivalent cleanup for bt_hid_lock.json.
+#
+# Root (the Deck plugin) never needs this: it can open/chmod the real device
+# directly at any time regardless of ordering, so there's no reconnect race
+# to close in the first place, and the udev rule/helper mode below don't
+# exist there.
+def _set_real_device_lock_marker(enabled):
+    if os.geteuid() == 0:
+        return
+    try:
+        subprocess.run([HELPER_PATH, "mark", "on" if enabled else "off"],
+                       capture_output=True, timeout=2)
+    except (OSError, subprocess.TimeoutExpired):
+        pass  # best-effort - the per-reconnect chmod lock below still applies
+
+
+def open_real_device(path):
+    """Opens the real DualSense's hidraw node for read/write, regardless of
+    whether 72-dualsense-haptics-proxy-lock.rules has already locked it to
+    root:root (see _set_real_device_lock_marker above) - which an ordinary
+    os.open() by this unprivileged process cannot do once that's happened.
+    Root (the Deck plugin) can always just open it directly."""
+    if os.geteuid() == 0:
+        return os.open(path, os.O_RDWR)
+    return _open_via_helper(path)
+
+
+def _open_via_helper(path):
+    """Asks the setcap'd helper to open `path` (cap_dac_override lets it
+    bypass DAC even though this process's own euid can't) and hand back the
+    resulting fd over a UNIX socket pair via SCM_RIGHTS - the standard way
+    to grant one specific already-running process access to something its
+    own permissions wouldn't otherwise allow, without ever widening the
+    device node's actual permissions for anyone else to race for."""
+    # SOCK_STREAM specifically (not DGRAM): its close semantics are
+    # unambiguous - recvmsg() below returns an empty message the instant the
+    # helper process exits without ever calling sendmsg (its inherited copy
+    # of child_sock closes with it), rather than this process's own read
+    # depending on less certain datagram-socket close behavior. The explicit
+    # settimeout() is a second, independent bound on top of that - belt and
+    # suspenders against ever blocking the engine thread indefinitely here.
+    parent_sock, child_sock = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    with parent_sock, child_sock:
+        parent_sock.settimeout(2)
+        try:
+            result = subprocess.run(
+                [HELPER_PATH, "open-fd", path, str(child_sock.fileno())],
+                pass_fds=(child_sock.fileno(),),
+                capture_output=True, text=True, timeout=2,
+            )
+        except (OSError, subprocess.TimeoutExpired) as e:
+            raise ProxyUnavailable(f"helper unavailable: {e}") from e
+        if result.returncode != 0:
+            raise ProxyUnavailable(result.stderr.strip() or "helper failed to open device")
+        fds = array.array("i")
+        try:
+            _msg, ancdata, _flags, _addr = parent_sock.recvmsg(
+                1, socket.CMSG_LEN(1 * fds.itemsize))
+        except OSError as e:
+            raise ProxyUnavailable(f"could not receive fd from helper: {e}") from e
+        for level, type_, data in ancdata:
+            if level == socket.SOL_SOCKET and type_ == socket.SCM_RIGHTS:
+                fds.frombytes(data[:len(data) - (len(data) % fds.itemsize)])
+        if not fds:
+            raise ProxyUnavailable("helper exited without sending a device fd")
+        return fds[0]
+
+
 def preflight_check():
     """Cheap, non-destructive check for UI use before persisting the toggle.
     Does not guarantee success at actual runtime - group membership granted
@@ -667,13 +749,17 @@ def recover_stale_lock():
     """Call once at process startup. If a lock file survives from an unclean
     shutdown (SIGKILL, crash), restore those permissions best-effort and
     clear the file - every individual chmod is safe even if the process that
-    made it is long gone."""
+    made it is long gone. Also clears a stale real-device-lock marker (see
+    _set_real_device_lock_marker) for the same reason: destroy() never got a
+    chance to run, so without this a crashed process would leave the real
+    DualSense locked to root:root with no session left willing to broker
+    access to it, until the next graceful shutdown or a reboot."""
     state = read_lock_state()
-    if not state:
-        return
-    backend = make_privilege_backend()
-    backend.restore(state.get("original_modes", {}))
-    clear_lock_state()
+    if state:
+        backend = make_privilege_backend()
+        backend.restore(state.get("original_modes", {}))
+        clear_lock_state()
+    _set_real_device_lock_marker(False)
 
 
 # --- the session itself -----------------------------------------------------
@@ -690,6 +776,12 @@ class BtHidProxySession:
         self.uhid_fd = None
         self._backend = None
         self._original_modes = None
+        # Spans this whole session's lifetime, not just one attach()/detach()
+        # cycle - see _set_real_device_lock_marker's own docstring. Must be
+        # set before the real device's *first* reconnect after this session
+        # starts wanting it, not just after attach() first succeeds, or that
+        # first reconnect would race Steam exactly like before.
+        _set_real_device_lock_marker(True)
         self.last_steam_report = bytearray(DEFAULT_OUTPUT_REPORT)
         self.last_input_report = None
         # Dedup cache for forward_trigger_only() - see there for why.
@@ -824,18 +916,23 @@ class BtHidProxySession:
         if not real_path:
             raise ProxyUnavailable("no hidraw node under the real hid instance")
 
-        # Open the real hidraw FIRST, while it still has its normal
-        # (uaccess-granted) permissions - Linux only checks permissions at
-        # open() time, so an already-open fd keeps working after the lock
-        # below chmods the node to 0600. This matters because on desktop,
-        # our own engine and Steam run as the exact same unprivileged OS
-        # user - DAC/ACL permissions cannot tell them apart, only "already
-        # had it open" vs "didn't". Locking before opening (the original,
-        # wrong order) would cut off our own access exactly like Steam's,
-        # since the ACL mask reduction that blocks Steam's named-user grant
-        # blocks ours too - confirmed empirically, not just in theory.
+        # open_real_device() works regardless of whether
+        # 72-dualsense-haptics-proxy-lock.rules has already locked this node
+        # down (see its own docstring) - unlike a plain os.open(), which
+        # would only succeed here because nothing has chmod'd the node yet
+        # (the chmod below is what used to do that, making order matter a
+        # lot: opening after locking used to cut off our own access exactly
+        # like Steam's, since on desktop our engine and Steam run as the
+        # exact same unprivileged OS user - DAC/ACL permissions cannot tell
+        # them apart, only "already had it open" vs "didn't", confirmed
+        # empirically, not just in theory). With the marker set for this
+        # session's whole lifetime (see __init__), the node is typically
+        # already locked by the time this runs on every reconnect after the
+        # first - only open_real_device() still gets in.
         try:
-            real_fd = os.open(real_path, os.O_RDWR)
+            real_fd = open_real_device(real_path)
+        except ProxyUnavailable:
+            raise
         except OSError as e:
             raise ProxyUnavailable(f"could not open real hidraw: {e}") from e
 
@@ -928,6 +1025,7 @@ class BtHidProxySession:
         being turned off or the engine is shutting down - not on a routine
         real-device disconnect, which should go through detach() instead so
         a later reconnect can attach() to the same, still-alive clone."""
+        _set_real_device_lock_marker(False)
         self.detach()
         self._real_writer_stop.set()
         if self.uhid_fd is not None:

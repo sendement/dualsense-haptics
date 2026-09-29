@@ -62,7 +62,10 @@ under **Experimental Features**, off by default) fixes this: it clones the
 controller via `/dev/uhid`, hides the real device from everyone else, and
 merges its own audio-reactive rumble into whatever Steam separately writes
 for triggers/lightbar before forwarding it to the real hardware — so both
-work at once instead of one silently blocking the other. It needs the
+work at once instead of one silently blocking the other. A dedicated udev
+rule keeps the real device locked to root the instant it (re)appears on
+every reconnect, not just once at startup, so Steam can never win a race to
+grab it back — even a fast one — and only ever sees the clone. It needs that
 udev rule and small setcap'd helper the Arch package installs
 automatically (see [Installation](#installation)); without them it falls
 back to the same "detect and report" behavior described in
@@ -244,9 +247,11 @@ sudo groupadd -r dualsense-haptics
 sudo usermod -aG dualsense-haptics "$USER"    # log out and back in after this
 sudo install -Dm755 packaging/src/dualsense-hidlock.c /tmp/dualsense-hidlock.c
 gcc -O2 -o /usr/lib/dualsense-haptics/dualsense-hidlock /tmp/dualsense-hidlock.c
-sudo setcap 'cap_fowner+ep' /usr/lib/dualsense-haptics/dualsense-hidlock
+sudo setcap 'cap_fowner,cap_dac_override+ep' /usr/lib/dualsense-haptics/dualsense-hidlock
 sudo install -Dm644 packaging/71-dualsense-haptics-uhid.rules \
     /usr/lib/udev/rules.d/71-dualsense-haptics-uhid.rules
+sudo install -Dm644 packaging/72-dualsense-haptics-proxy-lock.rules \
+    /usr/lib/udev/rules.d/72-dualsense-haptics-proxy-lock.rules
 sudo udevadm control --reload-rules
 sudo udevadm trigger --subsystem-match=leds
 ```
