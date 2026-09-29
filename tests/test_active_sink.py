@@ -5,8 +5,6 @@ as actually RUNNING instead of blindly trusting @DEFAULT_SINK@. Only the
 pure decision logic is covered here; pactl itself is always faked."""
 import types
 
-import pytest
-
 import haptics_engine as he
 
 
