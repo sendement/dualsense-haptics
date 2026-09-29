@@ -57,19 +57,26 @@ guaranteed everywhere: HID has no notion of ownership, so whichever output
 report reaches the controller last wins, and where Steam Input is fully in
 control (e.g. Steam Deck Gaming Mode) it can overwrite an effect too — see
 the [Steam Deck section](#steam-deck--steamos-decky-loader-plugin).
-**Trigger + Vibration Mix** (desktop only, opt-in
-under **Experimental Features**, off by default) fixes this: it clones the
-controller via `/dev/uhid`, hides the real device from everyone else, and
-merges its own audio-reactive rumble into whatever Steam separately writes
-for triggers/lightbar before forwarding it to the real hardware — so both
-work at once instead of one silently blocking the other. A dedicated udev
-rule keeps the real device locked to root the instant it (re)appears on
-every reconnect, not just once at startup, so Steam can never win a race to
-grab it back — even a fast one — and only ever sees the clone. It needs that
-udev rule and small setcap'd helper the Arch package installs
-automatically (see [Installation](#installation)); without them it falls
-back to the same "detect and report" behavior described in
-[Limitations](#limitations).
+**Trigger + Vibration Mix** (opt-in, off by default — under **Experimental
+Features** on desktop, or its own toggle in the Decky plugin's QAM panel;
+see [Steam Deck / SteamOS](#steam-deck--steamos-decky-loader-plugin)) fixes
+this: it clones the controller via `/dev/uhid`, hides the real device from
+everyone else, and merges its own audio-reactive rumble into whatever Steam
+separately writes for triggers/lightbar before forwarding it to the real
+hardware — so both work at once instead of one silently blocking the
+other. On desktop, a dedicated udev rule keeps the real device locked to
+root the instant it (re)appears on every reconnect, not just once at
+startup, so Steam can never win a race to grab it back — even a fast one —
+and only ever sees the clone; it needs that udev rule and small setcap'd
+helper the Arch package installs automatically (see
+[Installation](#installation)), without which it falls back to the same
+"detect and report" behavior described in
+[Limitations](#limitations). The Decky plugin's own copy runs as root
+already, so it needs none of that udev-rule locking to keep the real device
+out of Steam's hands on future reconnects — the one thing it still does is
+a one-time forced unbind/rebind of the real device the moment the feature
+turns on, to evict Steam if it already had the controller open from
+before.
 
 **LED Indication** (its own page on desktop, off by default) drives the
 lightbar and 5 player-indicator LEDs with a choice of presets: static
@@ -113,7 +120,7 @@ make it flaky too — see [Limitations](#limitations).
   triggers itself, the desktop app detects that the device is held open
   elsewhere and skips automatically re-applying its own effect on
   reconnect, so it won't fight the game — or, on Bluetooth, turn on
-  **Trigger + Vibration Mix** (desktop only, see
+  **Trigger + Vibration Mix** (see
   [How it works](#how-it-works)) so it doesn't need to skip anything in
   the first place. The Decky plugin never re-applies trigger presets
   automatically: pick the preset again after the controller reconnects.
@@ -265,15 +272,24 @@ Game Mode. It shares the same engine as the desktop app (same
 `haptics_engine.py`/`config.py`/`presets.py`, vendored unchanged) and reads
 the same kind of config, just through a much smaller set of controls: an
 on/off toggle, connection/battery status, presets, saved profiles (created
-on desktop, selectable here), adaptive trigger presets, and the Direct
-Audio USB/Bluetooth toggles. Per-button haptics, the custom trigger
-builder, and Trigger + Vibration Mix are desktop-only - the first two are
-deliberately left out to keep the QAM panel to a handful of widgets; the
-proxy was tried on Deck too but pulled after live testing in Big
-Picture/gamescope kept showing a duplicate controller icon with doubled
-inputs on reconnect, traced to how Steam's own controller detection
-handles the cloned device - see [How it works](#how-it-works) for what the
-feature does on desktop, where this doesn't come up.
+on desktop, selectable here), adaptive trigger presets, the Direct Audio
+USB/Bluetooth toggles, and its own **Trigger + Vibration Mix** toggle (off
+by default, same mechanism as desktop - see
+[How it works](#how-it-works)). Per-button haptics and the custom trigger
+builder are still desktop-only, deliberately left out to keep the QAM panel
+to a handful of widgets.
+
+Trigger + Vibration Mix itself was pulled from the Decky plugin early on
+after live testing in Big Picture/gamescope kept showing a duplicate
+controller icon with doubled inputs on reconnect, traced to Steam's own
+controller detection rebuilding its view of the cloned device on every
+single reconnect rather than recognizing it as the same one it already
+knew about. Fixed since by keeping the clone itself alive across real-device
+reconnects - only the real-device side gets torn down and relocked, so
+Steam only ever sees the clone bind once per session - the same fix the
+desktop app's own copy of this feature already needed for an unrelated
+reason (a race to grab the real device back from Steam on every
+reconnect).
 
 **Adaptive triggers on the Deck.** A trigger preset is one `dualsensectl`
 call (a single HID output report) sent when you pick it in the panel; the
@@ -335,8 +351,6 @@ tray icon's context menu to reopen, toggle vibration, or quit. Check
 - Built and tested on Arch/Hyprland; should work anywhere with a recent
   kernel and PipeWire/PulseAudio, but other desktop environments and
   distros haven't been extensively tested.
-- Trigger + Vibration Mix is desktop-only (not in the Decky plugin) — see
-  [Steam Deck / SteamOS](#steam-deck--steamos-decky-loader-plugin) for why.
 - Everything here rides over Bluetooth's own radio link, which has no
   guaranteed bandwidth. A busy 2.4GHz channel — Wi-Fi and Bluetooth sharing
   the same radio (common on a Steam Deck), other Bluetooth devices nearby,
