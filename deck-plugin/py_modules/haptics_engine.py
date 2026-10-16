@@ -849,6 +849,32 @@ def _drain_stale_audio(stdout, chunk_bytes):
     return max(extra, 0)
 
 
+def _read_exact(stdout, n):
+    """Loops stdout.read() calls until exactly n bytes are collected (or
+    the stream hits EOF), instead of trusting a single .read(n) call to
+    return a full chunk. bufsize=0 (see every parec spawn's own comment on
+    why) hands back a raw, unbuffered file object, and a single read(2)
+    syscall on a pipe is only ever guaranteed to return *up to* n bytes -
+    it can legitimately return fewer whenever the producer hasn't written
+    that much yet, which every one of this file's session loops used to
+    treat as "parec might have just exited" and otherwise silently never
+    recovered from: confirmed on real hardware that parec's own write
+    granularity (its --latency-msec, independent of this session's own
+    chunk size) doesn't always line up with what a single caller read()
+    happens to see ready at the exact moment select() wakes it - especially
+    once something else (e.g. a second concurrent Bluetooth connection)
+    perturbs PipeWire's own scheduling - turning what should be routine
+    jitter into a permanently stuck session that reads real bytes forever
+    without ever accumulating one full, usable chunk."""
+    buf = bytearray()
+    while len(buf) < n:
+        chunk = stdout.read(n - len(buf))
+        if not chunk:
+            break
+        buf += chunk
+    return bytes(buf)
+
+
 def _spawn_stereo_parec(audio_prefix, rate, source="@DEFAULT_SINK@.monitor"):
     """Shared by every BT/SAxense session (both use identical parec args) -
     also reused to respawn parec in place after a large stall (see
@@ -1312,7 +1338,7 @@ class HapticsEngine(threading.Thread):
             while (not self._stop_event.is_set() and self.config.get("direct_audio", {}).get("enabled", True)
                    and self._capture_source() == capture_source):
                 _drain_stale_audio(parec.stdout, stereo_bytes)
-                data = parec.stdout.read(stereo_bytes)
+                data = _read_exact(parec.stdout, stereo_bytes)
                 if len(data) < stereo_bytes:
                     if parec.poll() is not None:
                         raise RuntimeError("audio capture (parec) exited")
@@ -1533,7 +1559,7 @@ class HapticsEngine(threading.Thread):
                 # work_dur (below) catches the same class of slowness this
                 # loop's own DSP/write work might cause instead.
                 t_before_read = time.monotonic()
-                data = parec.stdout.read(stereo_bytes)
+                data = _read_exact(parec.stdout, stereo_bytes)
                 t_after_read = time.monotonic()
                 read_dur = t_after_read - t_before_read
                 if read_dur > SELECT_STARVATION_THRESHOLD_S:
@@ -1825,7 +1851,7 @@ class HapticsEngine(threading.Thread):
 
                 if proc.stdout in readable:
                     _drain_stale_audio(proc.stdout, CHUNK_BYTES)
-                    data = proc.stdout.read(CHUNK_BYTES)
+                    data = _read_exact(proc.stdout, CHUNK_BYTES)
                     if len(data) < CHUNK_BYTES:
                         if proc.poll() is not None:
                             raise RuntimeError("audio capture (parec) exited")
@@ -2012,7 +2038,7 @@ class HapticsEngine(threading.Thread):
                         print(f"[bt_proxy_saxense] stall detected ({dropped} bytes dropped) - "
                               f"restarting SAxense session", flush=True)
                         return
-                    data = parec.stdout.read(stereo_bytes)
+                    data = _read_exact(parec.stdout, stereo_bytes)
                     if len(data) < stereo_bytes:
                         if parec.poll() is not None:
                             raise RuntimeError("audio capture (parec) exited")
@@ -2296,7 +2322,7 @@ class HapticsEngine(threading.Thread):
             while (not self._stop_event.is_set() and not self._bt_proxy_should_retry(kind)
                    and not self._should_switch_from_ff(kind) and self._capture_source() == capture_source):
                 _drain_stale_audio(proc.stdout, CHUNK_BYTES)
-                data = proc.stdout.read(CHUNK_BYTES)
+                data = _read_exact(proc.stdout, CHUNK_BYTES)
                 if len(data) < CHUNK_BYTES:
                     if proc.poll() is not None:
                         raise RuntimeError("audio capture (parec) exited")

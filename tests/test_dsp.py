@@ -285,3 +285,40 @@ class TestCaptureSource:
         engine = he.HapticsEngine({}, capture_source)
         capture_source["source"] = "dualsense_haptics_app_tap.monitor"
         assert engine._capture_source() == "dualsense_haptics_app_tap.monitor"
+
+
+class _FakeStream:
+    """Stands in for parec.stdout: each call to read() pops the next
+    pre-scripted chunk (simulating a producer that writes in its own
+    granularity, not necessarily aligned with the caller's chunk size),
+    ignoring the requested size - exactly like a real unbuffered pipe
+    read(2), which returns whatever's *already* available up to n, not
+    necessarily n itself."""
+
+    def __init__(self, chunks):
+        self._chunks = list(chunks)
+
+    def read(self, _n):
+        return self._chunks.pop(0) if self._chunks else b""
+
+
+class TestReadExact:
+    def test_single_read_already_satisfying_n_is_unchanged(self):
+        stream = _FakeStream([b"A" * 10])
+        assert he._read_exact(stream, 10) == b"A" * 10
+
+    def test_accumulates_across_multiple_short_reads(self):
+        # The actual bug this guards: a producer writing in granularity
+        # smaller than one full chunk (e.g. parec's own --latency-msec not
+        # lining up with this session's chunk size) must not be mistaken
+        # for the producer having exited.
+        stream = _FakeStream([b"A" * 4, b"B" * 3, b"C" * 3])
+        assert he._read_exact(stream, 10) == b"AAAABBBCCC"
+
+    def test_stops_early_on_eof_rather_than_blocking_forever(self):
+        stream = _FakeStream([b"A" * 4, b""])
+        assert he._read_exact(stream, 10) == b"A" * 4
+
+    def test_exact_zero_length_request_reads_nothing(self):
+        stream = _FakeStream([b"A" * 4])
+        assert he._read_exact(stream, 0) == b""
