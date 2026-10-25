@@ -14,6 +14,12 @@
 # unrestricted permissions exactly as before this rule existed.
 
 ACTION!="add|change", GOTO="dualsense_haptics_proxy_lock_end"
+# Every other line below is scoped to hidraw or input, but the final
+# OWNER/MODE line is not: without this gate, any other device seeing an
+# add/change event while the marker exists (e.g. /dev/null during the
+# `udevadm trigger -c change` pacman runs after updates) fell through to
+# it and was locked to root 0600.
+SUBSYSTEM!="hidraw|input", GOTO="dualsense_haptics_proxy_lock_end"
 
 SUBSYSTEM=="hidraw", KERNELS=="0005:054C:0CE6.*|0005:054c:0ce6.*|0005:054C:0DF2.*|0005:054c:0df2.*", IMPORT{parent}="HID_*"
 SUBSYSTEM=="hidraw", ENV{HID_PHYS}=="dualsense-haptics-proxy-clone", GOTO="dualsense_haptics_proxy_lock_end"
